@@ -48,7 +48,7 @@ class HomeController extends Controller
             'related' => $related,
             'meta_title' => $blog->meta_title,
             'meta_description' => $blog->meta_description,
-            'og_image' => "https://source.unsplash.com/random/1200x630?{$blog->category->slug}&sig={$blog->id}"
+            'og_image' => "https://placehold.co/1200x630/e2e8f0/1e293b?text={$blog->category->name}"
         ]);
     }
 }

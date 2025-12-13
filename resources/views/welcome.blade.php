@@ -12,7 +12,7 @@
     <div x-data="{ activeSlide: 0, slides: {{ $latest->count() }} }" class="relative mb-12 rounded-xl overflow-hidden shadow-2xl h-96">
         @foreach($latest as $index => $blog)
             <div x-show="activeSlide === {{ $index }}" class="absolute inset-0 transition-opacity duration-500 ease-in-out bg-gray-900">
-                <img src="https://source.unsplash.com/random/1200x600?{{ $blog->category->slug }}" class="w-full h-full object-cover opacity-50">
+                <img src="https://placehold.co/1200x600/1d4ed8/ffffff?text={{ $blog->category->name }}" class="w-full h-full object-cover opacity-50">
                 <div class="absolute bottom-0 left-0 p-8 text-white w-full bg-gradient-to-t from-black to-transparent">
                     <span class="bg-blue-600 text-xs font-bold px-2 py-1 rounded uppercase">{{ $blog->category->name }}</span>
                     <h2 class="text-4xl font-bold mt-2 leading-tight">
@@ -43,7 +43,7 @@
             @forelse($feed as $blog)
                 <div class="bg-white rounded-lg shadow-sm hover:shadow-md transition overflow-hidden flex flex-col md:flex-row h-auto md:h-48">
                     <div class="w-full md:w-1/3 bg-gray-200">
-                        <img src="https://source.unsplash.com/random/400x300?{{ $blog->category->slug }}&sig={{ $blog->id }}" class="w-full h-full object-cover">
+                        <img src="https://placehold.co/400x300/e2e8f0/1e293b?text={{ $blog->category->name }}" class="w-full h-full object-cover">
                     </div>
                     <div class="p-6 w-full md:w-2/3 flex flex-col justify-between">
                         <div>

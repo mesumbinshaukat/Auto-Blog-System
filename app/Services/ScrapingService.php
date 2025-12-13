@@ -14,7 +14,10 @@ class ScrapingService
     {
         $this->client = new Client([
             'timeout'  => 10.0,
-            'verify' => false // For development/local issues, though strictly should be true
+            'verify' => false, // Disable SSL verification for local dev
+            'headers' => [
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            ]
         ]);
     }
 
@@ -70,5 +73,32 @@ class ScrapingService
             Log::error("Scraping URL $url failed: " . $e->getMessage());
             return "";
         }
+    }
+
+    /**
+     * Research a topic by scraping multiple sources
+     */
+    public function researchTopic(string $topic): string
+    {
+        $sources = [
+            "https://en.wikipedia.org/wiki/" . str_replace(' ', '_', $topic),
+        ];
+
+        $researchData = [];
+        
+        foreach ($sources as $url) {
+            try {
+                $content = $this->scrapeContent($url);
+                if (!empty($content)) {
+                    $researchData[] = substr($content, 0, 500); // First 500 chars from each source
+                }
+            } catch (\Exception $e) {
+                Log::warning("Failed to research from $url: " . $e->getMessage());
+            }
+        }
+
+        return !empty($researchData) 
+            ? "Research findings:\n" . implode("\n\n", $researchData)
+            : "No research data available.";
     }
 }

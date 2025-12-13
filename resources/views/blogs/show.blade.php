@@ -25,9 +25,6 @@
                 </div>
             </header>
 
-            <!-- Image -->
-            <img src="https://source.unsplash.com/random/800x400?{{ $blog->category->slug }}&sig={{ $blog->id }}" class="w-full rounded-lg mb-8 shadow-md">
-
             <!-- Mobile TOC -->
             <div class="lg:hidden mb-8 bg-gray-50 p-4 rounded border">
                 <h3 class="font-bold text-gray-700 mb-2">Table of Contents</h3>
@@ -41,7 +38,17 @@
             </div>
 
             <!-- Content -->
-            <div class="prose prose-lg max-w-none prose-blue">
+            <div class="prose prose-lg max-w-none prose-blue" style="line-height: 1.8;">
+                <style>
+                    .prose p { margin-bottom: 1.5rem; line-height: 1.8; }
+                    .prose h2 { margin-top: 2.5rem; margin-bottom: 1.25rem; }
+                    .prose h3 { margin-top: 2rem; margin-bottom: 1rem; }
+                    .prose ul, .prose ol { margin-bottom: 1.5rem; }
+                    .prose li { margin-bottom: 0.5rem; }
+                    .prose table { margin: 2rem 0; }
+                    .prose table th { background-color: #f3f4f6; padding: 0.75rem; }
+                    .prose table td { padding: 0.75rem; border: 1px solid #e5e7eb; }
+                </style>
                 {!! $blog->content !!}
             </div>
 
