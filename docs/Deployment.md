@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Follow these 10 simple steps to deploy the Auto Blog System to production.
+Follow these 11 simple steps to deploy the Auto Blog System to production.
 
 ## 1. Clone the Repository
 ```bash
@@ -38,9 +38,9 @@ php artisan storage:link
 ```
 
 ## 7. Set Up Scheduler (Cron)
-Add the following entry to your server's crontab (`crontab -e`):
+Add the following entry to your server's crontab (`crontab -e`). Replace `/path/to/project` with your **full actual path** (e.g., `/home/u123/domains/example.com/public_html`):
 ```bash
-* * * * * cd /path/to/auto-blog-system && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd /path/to/auto-blog-system && /usr/bin/php artisan schedule:run >> /dev/null 2>&1
 ```
 
 ## 8. Configure Web Server
@@ -59,13 +59,19 @@ php artisan route:cache
 php artisan view:cache
 ```
 
-## 10. Verify Deployment
+## 10. Set Up Queue (Shared Hosting)
+If you cannot use Supervisor, add this **second cron job** to process background tasks (emails, blog generation):
+```bash
+* * * * * cd /path/to/auto-blog-system && /usr/bin/php artisan queue:work --stop-when-empty --tries=3 >> /dev/null 2>&1
+```
+
+## 11. Verify Deployment
 Run the email test and scheduler check locally to ensure everything is wired up:
 ```bash
 php artisan test:email --to=admin@worldoftech.company
 php artisan schedule:test
 ```
-*Note: The scheduler is configured to generate 5 blogs per day, spaced out by ~3.5 hours.*
+*Note: The scheduler is configured to generate 5 blogs per day. The queue worker (Step 10) is required to actually process them.*
 
 ---
 ## Troubleshooting
