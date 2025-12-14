@@ -24,7 +24,8 @@ class AdminController extends Controller
 
         // 2. Analytics Data
         $totalViews = \App\Models\BlogView::count();
-        
+        $uniqueVisitors = \App\Models\BlogView::distinct('ip_address')->count();
+
         // Chart Data: Last 30 Days
         $chartData = \App\Models\BlogView::selectRaw('DATE(created_at) as date, COUNT(*) as views')
             ->where('created_at', '>=', now()->subDays(30))
@@ -32,17 +33,33 @@ class AdminController extends Controller
             ->orderBy('date')
             ->get();
             
-        // Most Visited (Top 5)
-        $mostVisited = Blog::orderByDesc('views')->take(5)->get();
+        // Most Visited (Paginated)
+        $mostVisited = Blog::orderByDesc('views')
+            ->paginate(10, ['*'], 'top_page');
         
-        // Top Countries
-        $topCountries = \App\Models\BlogView::select('country_code', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+        // Top Countries (Paginated Manual Collection for accuracy with grouping)
+        $allCountries = \App\Models\BlogView::select('country_code', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
             ->groupBy('country_code')
             ->orderByDesc('total')
-            ->take(5)
             ->get();
+            
+        // Manual Pagination for Countries
+        $page = $request->input('loc_page', 1);
+        $perPage = 10;
+        $topCountries = new \Illuminate\Pagination\LengthAwarePaginator(
+            $allCountries->forPage($page, $perPage),
+            $allCountries->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'pageName' => 'loc_page']
+        );
 
-        return view('dashboard', compact('blogs', 'totalViews', 'chartData', 'mostVisited', 'topCountries'));
+        // Recent Visitors (Paginated)
+        $recentIps = \App\Models\BlogView::with('blog')
+            ->latest()
+            ->paginate(10, ['*'], 'ip_page');
+
+        return view('dashboard', compact('blogs', 'totalViews', 'uniqueVisitors', 'chartData', 'mostVisited', 'topCountries', 'recentIps'));
     }
 
     public function create()

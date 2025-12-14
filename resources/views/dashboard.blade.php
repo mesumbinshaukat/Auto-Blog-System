@@ -21,6 +21,10 @@
             <div class="text-gray-500 text-sm uppercase">Total Views</div>
             <div class="text-3xl font-bold">{{ \App\Models\Blog::sum('views') }}</div>
         </div>
+        <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-yellow-500">
+            <div class="text-gray-500 text-sm uppercase">Unique Visitors</div>
+            <div class="text-3xl font-bold">{{ number_format($uniqueVisitors) }}</div>
+        </div>
          <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-purple-500">
             <div class="text-gray-500 text-sm uppercase">Manual Gen (Single)</div>
             <div x-data="{ 
@@ -190,18 +194,46 @@
             <div class="bg-white p-6 rounded-lg shadow-sm">
                 <h3 class="text-lg font-semibold mb-4 text-gray-700">Top Locations</h3>
                 <ul class="space-y-3">
+                    @php
+                        $countryMap = [
+                            'XX' => 'Unknown Region',
+                            'US' => 'United States', 'GB' => 'United Kingdom', 'CA' => 'Canada', 'AU' => 'Australia',
+                            'DE' => 'Germany', 'FR' => 'France', 'IN' => 'India', 'CN' => 'China', 'JP' => 'Japan',
+                            'BR' => 'Brazil', 'RU' => 'Russia', 'ZA' => 'South Africa', 'PK' => 'Pakistan',
+                            'ID' => 'Indonesia', 'MX' => 'Mexico', 'ES' => 'Spain', 'IT' => 'Italy', 'NL' => 'Netherlands',
+                            'SE' => 'Sweden', 'NO' => 'Norway', 'DK' => 'Denmark', 'FI' => 'Finland', 'KR' => 'South Korea',
+                            'TR' => 'Turkey', 'SA' => 'Saudi Arabia', 'AE' => 'United Arab Emirates', 'EG' => 'Egypt',
+                            'NG' => 'Nigeria', 'KE' => 'Kenya', 'AR' => 'Argentina', 'CL' => 'Chile', 'CO' => 'Colombia',
+                            'PL' => 'Poland', 'UA' => 'Ukraine', 'TH' => 'Thailand', 'VN' => 'Vietnam', 'PH' => 'Philippines',
+                            'BD' => 'Bangladesh', 'IR' => 'Iran', 'IQ' => 'Iraq', 'IL' => 'Israel', 'GR' => 'Greece',
+                            'PT' => 'Portugal', 'BE' => 'Belgium', 'CH' => 'Switzerland', 'AT' => 'Austria', 'IE' => 'Ireland',
+                        ];
+                    @endphp
                     @foreach($topCountries as $tc)
                     <li class="flex justify-between items-center text-sm">
                         <div class="flex items-center">
-                            <img src="https://flagcdn.com/24x18/{{ strtolower($tc->country_code) }}.png" 
-                                 class="mr-2 w-4 h-3 object-cover rounded-sm" 
-                                 onerror="this.style.display='none'"> 
-                            <span class="text-gray-600">{{ $tc->country_code }}</span>
+                            @if($tc->country_code && $tc->country_code !== 'XX')
+                                <img src="https://flagcdn.com/24x18/{{ strtolower($tc->country_code) }}.png" 
+                                     class="mr-2 w-4 h-3 object-cover rounded-sm" 
+                                     onerror="this.style.display='none'"> 
+                            @else
+                                <span class="mr-2 w-4 h-3 flex items-center justify-center bg-gray-200 rounded-sm text-[8px] text-gray-500">?</span>
+                            @endif
+                            
+                            <span class="text-gray-600 ml-1">
+                                {{ $countryMap[$tc->country_code] ?? ($tc->country_code ?: 'Unknown') }}
+                            </span>
                         </div>
                         <span class="font-bold text-green-600">{{ number_format($tc->total) }}</span>
                     </li>
                     @endforeach
+                    @if($topCountries->isEmpty())
+                        <li class="text-gray-400 text-sm italic">No location data yet.</li>
+                    @endif
                 </ul>
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                     {{ $topCountries->appends(request()->query())->links() }}
+                </div>
             </div>
         </div>
     </div>
