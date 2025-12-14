@@ -21,8 +21,18 @@
         <li>Send you emails and newsletters (if subscribed)</li>
     </ul>
 
-    <h2>3. Cookies and Tracking</h2>
-    <p>We use cookies to enhance your experience. You can choose to disable cookies through your individual browser options. For more detailed information, please see our Cookie Policy.</p>
+    <h2>3. Data Monetization & Advertisements</h2>
+    <p>We believe in keeping our content free and accessible to everyone. To support the operation and maintenance of AutoBlogSystem, we display third-party advertisements (e.g., Google AdSense).</p>
+    
+    <p><strong>Crucial Policies regarding your Data:</strong></p>
+    <ul>
+        <li><strong>No Sale of Data:</strong> We do <strong>NOT</strong> sell, trade, or rent your personal identification information (such as name or email) to Data Brokers or third parties for profit.</li>
+        <li><strong>Ad Usage:</strong> We <em>do</em> utilize data such as cookies and usage patterns solely to display relevant advertisements to you. This ensures you see ads that might actually be interesting, rather than random spam.</li>
+        <li><strong>Third-Party Tracking:</strong> Our advertising partners (like Google) may use cookies to collect non-personal information about your visits to this and other websites in order to provide advertisements about goods and services of interest to you.</li>
+    </ul>
+
+    <h2>4. Cookies and Tracking</h2>
+    <p>We use cookies to enhance your experience. Even if you "Reject" non-essential cookies via our consent banner, we may still display advertisements to you, though they may be less personalized. Cookies help us analyze traffic and serve content efficiently.</p>
 
     <h2>4. Third-Party Services</h2>
     <p>We may use third-party Service Providers to monitor and analyze the use of our Service (e.g., Google Analytics). These third parties have access to your Personal Data only to perform these tasks on our behalf and are obligated not to disclose or use it for any other purpose.</p>

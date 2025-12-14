@@ -210,5 +210,8 @@
         @include('cookie-consent::index')
     @endif
     @livewireScripts
+    
+    <!-- Cookie Consent -->
+    @include('partials.cookie-banner')
 </body>
 </html>

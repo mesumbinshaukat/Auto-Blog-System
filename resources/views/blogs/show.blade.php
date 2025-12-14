@@ -83,23 +83,7 @@
 
         <!-- Sidebar -->
         <aside class="space-y-8">
-            <!-- Desktop TOC -->
-            <div class="hidden lg:block bg-white p-6 rounded-lg shadow-sm sticky top-6">
-                <h4 class="text-lg font-bold mb-4 border-b pb-2">Table of Contents</h4>
-                <nav>
-                    <ul class="space-y-2 text-sm">
-                        @foreach($blog->table_of_contents as $item)
-                            <li class="pl-{{ ($item['level'] - 2) * 4 }}">
-                                <a href="#{{ $item['id'] }}" class="text-gray-600 hover:text-blue-600 transition block border-l-2 border-transparent hover:border-blue-500 pl-2">
-                                    {{ $item['title'] }}
-                                </a>
-                            </li>
-                        @endforeach
-                    </ul>
-                </nav>
-            </div>
-
-            <!-- Related -->
+            <!-- Related Posts (Moved Top to avoid Sticky Overlap) -->
             <div class="bg-white p-6 rounded-lg shadow-sm">
                 <h4 class="text-lg font-bold mb-4 border-b pb-2">Related Posts</h4>
                 <div class="space-y-4">
@@ -112,6 +96,39 @@
                         </div>
                     @endforeach
                 </div>
+            </div>
+
+            <!-- Desktop TOC (Sticky & Collapsible) -->
+            <div class="hidden lg:block bg-white p-6 rounded-lg shadow-sm sticky top-6"
+                 x-data="{ open: true }"
+                 style="max-height: calc(100vh - 4rem); overflow-y: auto;">
+                
+                <div class="flex justify-between items-center mb-4 border-b pb-2 cursor-pointer group" @click="open = !open">
+                    <h4 class="text-lg font-bold group-hover:text-blue-600 transition">Table of Contents</h4>
+                    <svg class="w-5 h-5 text-gray-500 transform transition-transform duration-200" 
+                         :class="{'rotate-180': open}" 
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                </div>
+
+                <nav x-show="open" 
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0 -translate-y-2"
+                     x-transition:enter-end="opacity-100 translate-y-0"
+                     x-transition:leave="transition ease-in duration-150"
+                     x-transition:leave-start="opacity-100 translate-y-0"
+                     x-transition:leave-end="opacity-0 -translate-y-2">
+                    <ul class="space-y-2 text-sm">
+                        @foreach($blog->table_of_contents as $item)
+                            <li class="pl-{{ ($item['level'] - 2) * 4 }}">
+                                <a href="#{{ $item['id'] }}" class="text-gray-600 hover:text-blue-600 transition block border-l-2 border-transparent hover:border-blue-500 pl-2">
+                                    {{ $item['title'] }}
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </nav>
             </div>
         </aside>
 

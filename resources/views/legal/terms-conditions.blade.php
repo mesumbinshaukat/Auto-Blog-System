@@ -10,10 +10,18 @@
     <h2>1. Introduction</h2>
     <p>These terms and conditions outline the rules and regulations for the use of AutoBlogSystem's Website.</p>
 
-    <h2>2. Intellectual Property Rights</h2>
+    <h2>2. Ad-Supported Access</h2>
+    <p>Access to the content on AutoBlogSystem is provided to you free of charge. You acknowledge and agree that:</p>
+    <ul>
+        <li>We display advertisements to support the costs of hosting, content generation, and maintenance.</li>
+        <li>By using this website, you consent to the display of these advertisements.</li>
+        <li>We reserve the right to monetize usage patterns via non-personal data (ads) but strictly adhere to our "No Data Sale" privacy commitment.</li>
+    </ul>
+
+    <h2>3. Intellectual Property Rights</h2>
     <p>Other than the content you own, under these Terms, AutoBlogSystem and/or its licensors own all the intellectual property rights and materials contained in this Website.</p>
 
-    <h2>3. Restrictions</h2>
+    <h2>4. Restrictions</h2>
     <p>You are specifically restricted from all of the following:</p>
     <ul>
         <li>publishing any Website material in any other media;</li>
