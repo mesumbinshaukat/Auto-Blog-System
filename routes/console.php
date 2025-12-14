@@ -13,7 +13,7 @@ Schedule::call(function () {
     $blogCount = \App\Models\Blog::whereDate('created_at', today())->count();
     
     Mail::raw("Daily system check:\nAPIs: $apiStatus\nBlogs Generated Today: $blogCount", function ($message) {
-        $message->to('mesum@worldoftech.company')
+        $message->to(env('REPORTS_EMAIL'))
             ->subject('Daily System Health Check');
     });
 })->dailyAt('23:55');

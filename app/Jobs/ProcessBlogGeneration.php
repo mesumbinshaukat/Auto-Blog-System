@@ -44,7 +44,7 @@ class ProcessBlogGeneration implements ShouldQueue
             Log::error("Blog generation job failed: " . $e->getMessage());
             
             // Send email notification
-            \Illuminate\Support\Facades\Mail::to('mesum@worldoftech.company')
+            \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL'))
                 ->send(new \App\Mail\BlogGenerationFailed($e->getMessage(), $category->name ?? 'Unknown'));
         }
     }

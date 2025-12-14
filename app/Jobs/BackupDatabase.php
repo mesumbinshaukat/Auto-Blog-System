@@ -66,7 +66,7 @@ class BackupDatabase implements ShouldQueue
 
         } catch (\Exception $e) {
             Log::error("Backup failed: " . $e->getMessage());
-            \Illuminate\Support\Facades\Mail::to('mesum@worldoftech.company')
+            \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL'))
                 ->send(new \App\Mail\BlogGenerationFailed("Backup failed: " . $e->getMessage(), "Database Backup"));
         }
     }
