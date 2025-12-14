@@ -9,8 +9,14 @@ class AIService
 {
     protected $hfToken;
     protected $geminiKey;
-    protected $primaryModel = 'allenai/Olmo-3-7B-Instruct';
-    protected $fallbackModel = 'swiss-ai/Apertus-8B-Instruct-2509';
+    
+    // Priority list of models to try
+    protected $models = [
+        'allenai/Olmo-3-7B-Instruct',          // Primary
+        'swiss-ai/Apertus-8B-Instruct-2509',   // Fallback 1
+        'microsoft/Phi-3-mini-4k-instruct',    // Fallback 2 (Fast, good for structure)
+        'Qwen/Qwen2.5-7B-Instruct',            // Fallback 3 (Robust)
+    ];
 
     public function __construct()
     {
@@ -30,13 +36,19 @@ class AIService
         $systemPrompt = $this->buildSystemPrompt();
         $userPrompt = $this->buildUserPrompt($topic, $category, $researchData);
 
-        // Try primary model
-        Log::info("Generating content for topic: $topic");
-        $result = $this->callHuggingFaceChatCompletion($this->primaryModel, $systemPrompt, $userPrompt);
+        $result = null;
 
-        if (!$result) {
-            Log::info("Primary model failed, trying fallback...");
-            $result = $this->callHuggingFaceChatCompletion($this->fallbackModel, $systemPrompt, $userPrompt);
+        // Try each model in the list
+        foreach ($this->models as $model) {
+            Log::info("Attempting generation with model: $model");
+            $result = $this->callHuggingFaceChatCompletion($model, $systemPrompt, $userPrompt);
+            
+            if ($result) {
+                Log::info("Success with model: $model");
+                break;
+            }
+            
+            Log::warning("Model $model failed, trying next...");
         }
 
         if (!$result) {
@@ -69,27 +81,29 @@ REQUIRED STRUCTURE:
 - Introduction paragraph with <p> tags
 - 4-6 main sections with <h2> headings
 - Use <h3> for subsections where appropriate
-- Each section should have 2-4 paragraphs in <p> tags
+- EACH SECTION must have multiple SHORT paragraphs.
+- **CRITICAL**: Paragraphs must be 2-4 sentences max. Break up text frequently.
 - Use <strong> for emphasis, <em> for italics
 - Include <ul> or <ol> lists where relevant
-- If topic involves comparisons/data, include HTML <table> with <thead> and <tbody>
+- If topic involves comparisons/data, include HTML <table class=\"comparison-table\"> with <thead> and <tbody>
 
 CONTENT REQUIREMENTS:
-- Length: 800-2000 words for standard topics, up to 3000+ for comprehensive guides
-- Write naturally and conversationally (use contractions: don't, it's, we'll)
-- Avoid robotic phrases, em dashes (—), and repetitive patterns
-- Vary sentence structure and length
-- Include specific examples and actionable insights
-- Ensure keyword appears naturally 3-5 times (1-2% density)
+- Length: 800-2000 words.
+- Write naturally and conversationally.
+- Avoid robotic phrases and em dashes (—).
+- Vary sentence structure and length.
+- Include specific examples.
 
-SEO OPTIMIZATION:
-- Use semantic keywords related to the topic
-- Write compelling, benefit-focused content
-- Include internal topic references where natural
-- Ensure readability (short paragraphs, clear headings)
+Example Paragraph Structure (Follow this):
+<p>First sentence introduces the idea.</p>
+<p>Second sentence adds detail or an example. Third sentence concludes the thought.</p>
+<p>New paragraph starts with a transition.</p>
+
+Example Table:
+<table class='comparison-table'><thead><tr><th>Feature</th><th>Benefit</th></tr></thead><tbody><tr><td>Speed</td><td>Fast</td></tr></tbody></table>
 
 OUTPUT FORMAT:
-Return ONLY the HTML content, no markdown code blocks or extra formatting.";
+Return ONLY the HTML content, no markdown code blocks.";
     }
 
     protected function buildUserPrompt(string $topic, string $category, string $researchData): string
@@ -101,13 +115,12 @@ Return ONLY the HTML content, no markdown code blocks or extra formatting.";
         }
 
         $prompt .= "INSTRUCTIONS:
-- Create an engaging, informative article that provides real value
-- Use the research context to ensure accuracy
-- Adapt length based on topic complexity (aim for 1000-1800 words)
-- Include practical examples and actionable advice
-- If the topic involves comparisons (e.g., 'Best X', 'Top Y'), include an HTML comparison table
-- Ensure the content is SEO-optimized with natural keyword integration
-- Write in a human, conversational tone
+- Create an engaging, informative article.
+- Use the research context.
+- **Limit paragraphs to 2-4 sentences**. No walls of text.
+- If comparison topic, use <table class='comparison-table'>.
+- Natural keyword integration.
+- Conversational tone.
 
 Begin writing the blog post now:";
 
@@ -178,7 +191,7 @@ Begin writing the blog post now:";
     {
         $expansionPrompt = "The following blog post about \"$topic\" is too short. Expand it by adding more detailed sections, examples, and insights. Maintain the same HTML structure and style.\n\nCurrent content:\n$content\n\nExpanded version:";
         
-        $expanded = $this->callHuggingFaceChatCompletion($this->primaryModel, $systemPrompt, $expansionPrompt, 2);
+        $expanded = $this->callHuggingFaceChatCompletion($this->models[0], $systemPrompt, $expansionPrompt, 2);
         
         return $expanded ?: $content;
     }
@@ -194,34 +207,27 @@ Begin writing the blog post now:";
         return $truncated . '...</p>';
     }
 
-    public function optimizeAndHumanize(string $content): string
+    public function optimizeAndHumanize(string $content): array
     {
-        // Skip if mock content
-        if (strpos($content, 'This is a mock blog post') !== false) {
-            return $content;
-        }
-
+        // Return array: ['content' => string, 'toc' => array]
+        
         if (empty($this->geminiKey)) {
             Log::warning("GEMINI_API_KEY not configured. Skipping optimization.");
-            return $content;
+            return $this->validateAndFixHtml($content);
         }
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}";
         
-        $prompt = "Optimize and humanize the following blog content. Requirements:
+        $prompt = "Optimize and humanize this blog content.
+Requirements:
+1. **Split long paragraphs**: If a paragraph has >3 sentences, split it. 
+2. Ensure <p> tags are used correctly.
+3. Remove robotic patterns and em dashes.
+4. Add 'comparison-table' class to tables.
+5. Maintain all headings and structure.
+6. Return ONLY the HTML.
 
-1. Remove any robotic patterns, em dashes (—), or repetitive phrases
-2. Ensure natural, conversational flow with varied sentence structure
-3. Add contractions where appropriate (don't, it's, we'll)
-4. Verify proper HTML structure (headings, paragraphs, lists, tables)
-5. Ensure keyword density is 1-2% (natural integration)
-6. Improve readability and engagement
-7. Maintain all existing HTML tags and structure
-8. Do NOT change the core message or facts
-
-Return ONLY the optimized HTML content, no explanations.
-
-Content to optimize:
+Content:
 " . substr($content, 0, 15000);
 
         try {
@@ -240,18 +246,105 @@ Content to optimize:
                 $optimized = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
                 
                 if ($optimized) {
-                    Log::info("Successfully optimized content");
-                    return $this->cleanContent($optimized);
+                    $cleaned = $this->cleanContent($optimized);
+                    return $this->validateAndFixHtml($cleaned);
                 }
             }
-            
-            Log::warning("Gemini API returned unsuccessful response: " . $response->status());
-            
         } catch (\Exception $e) {
             Log::error("Gemini Optimization failed: " . $e->getMessage());
         }
 
-        return $content;
+        return $this->validateAndFixHtml($content);
+    }
+
+    public function validateAndFixHtml(string $html): array
+    {
+        Log::info("Validating and fixing HTML structure...");
+        
+        $dom = new \DOMDocument();
+        // Suppress warnings for malformed HTML, handle utf-8
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $xpath = new \DOMXPath($dom);
+
+        // 1. Split long paragraphs
+        $paragraphs = $dom->getElementsByTagName('p');
+        // Convert to array to avoid modification issues during iteration
+        $pArray = iterator_to_array($paragraphs);
+        
+        foreach ($pArray as $p) {
+            $text = $p->textContent;
+            $words = str_word_count($text);
+            
+            if ($words > 80) { // Threshold for splitting (approx 4-5 sentences)
+                Log::info("Splitting long paragraph ($words words)");
+                
+                // Simple sentence splitting (imperfect but better than wall of text)
+                $sentences = preg_split('/(?<=[.?!])\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
+                $chunk = "";
+                $newParams = [];
+                
+                foreach ($sentences as $sentence) {
+                    $chunk .= $sentence . " ";
+                    if (str_word_count($chunk) > 40) {
+                        $newP = $dom->createElement('p', trim($chunk));
+                        $p->parentNode->insertBefore($newP, $p);
+                        $chunk = "";
+                    }
+                }
+                if (!empty($chunk)) {
+                    $newP = $dom->createElement('p', trim($chunk));
+                    $p->parentNode->insertBefore($newP, $p);
+                }
+                
+                $p->parentNode->removeChild($p);
+            }
+        }
+
+        // 2. Fix Tables
+        $tables = $dom->getElementsByTagName('table');
+        foreach ($tables as $table) {
+            $class = $table->getAttribute('class');
+            if (strpos($class, 'comparison-table') === false) {
+                $table->setAttribute('class', trim($class . ' comparison-table'));
+            }
+        }
+
+        // 3. Add IDs to headings for TOC
+        $toc = [];
+        $headings = $xpath->query('//h2|//h3');
+        
+        foreach ($headings as $heading) {
+            $text = $heading->textContent;
+            $slug = \Illuminate\Support\Str::slug($text);
+            
+            // Generate unique ID
+            $originalSlug = $slug;
+            $count = 1;
+            while ($xpath->query("//*[@id='$slug']")->length > 0) {
+                $slug = $originalSlug . '-' . $count++;
+            }
+            
+            $heading->setAttribute('id', $slug);
+            
+            $toc[] = [
+                'level' => $heading->nodeName == 'h2' ? 2 : 3,
+                'title' => $text,
+                'id' => $slug
+            ];
+        }
+
+        $fixedHtml = $dom->saveHTML();
+        
+        // Remove the xml encoding tag added for loading
+        $fixedHtml = str_replace('<?xml encoding="utf-8" ?>', '', $fixedHtml);
+
+        return [
+            'content' => trim($fixedHtml),
+            'toc' => $toc
+        ];
     }
 
     protected function generateMockContent(string $topic): string

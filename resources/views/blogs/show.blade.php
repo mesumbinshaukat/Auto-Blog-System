@@ -38,16 +38,24 @@
             </div>
 
             <!-- Content -->
-            <div class="prose prose-lg max-w-none prose-blue" style="line-height: 1.8;">
+            <div class="prose prose-lg max-w-none prose-blue leading-relaxed space-y-4" style="line-height: 1.8;">
                 <style>
-                    .prose p { margin-bottom: 1.5rem; line-height: 1.8; }
-                    .prose h2 { margin-top: 2.5rem; margin-bottom: 1.25rem; }
-                    .prose h3 { margin-top: 2rem; margin-bottom: 1rem; }
-                    .prose ul, .prose ol { margin-bottom: 1.5rem; }
-                    .prose li { margin-bottom: 0.5rem; }
-                    .prose table { margin: 2rem 0; }
-                    .prose table th { background-color: #f3f4f6; padding: 0.75rem; }
-                    .prose table td { padding: 0.75rem; border: 1px solid #e5e7eb; }
+                    .prose p { margin-bottom: 2rem; line-height: 1.8; }
+                    .prose h2 { margin-top: 3rem; margin-bottom: 1.5rem; font-size: 1.875rem; font-weight: 700; color: #111827; }
+                    .prose h3 { margin-top: 2.5rem; margin-bottom: 1.25rem; font-size: 1.5rem; font-weight: 600; color: #374151; }
+                    .prose ul, .prose ol { margin-left: 1.5rem; margin-bottom: 2rem; }
+                    .prose ul { list-style-type: disc; }
+                    .prose ol { list-style-type: decimal; }
+                    
+                    /* Enhanced Table Styling */
+                    .prose table { width: 100%; border-collapse: collapse; margin: 2rem 0; border: 1px solid #d1d5db; overflow: hidden; border-radius: 0.5rem; }
+                    .prose table th { background-color: #3b82f6; color: white; padding: 1rem; text-align: left; font-weight: 600; }
+                    .prose table td { padding: 1rem; border-bottom: 1px solid #d1d5db; color: #4b5563; }
+                    .prose table tbody tr:nth-child(odd) { background-color: #f9fafb; }
+                    .prose table tbody tr:hover { background-color: #f3f4f6; }
+                    
+                    /* Comparison Table Specifics */
+                    .comparison-table { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
                 </style>
                 {!! $blog->content !!}
             </div>

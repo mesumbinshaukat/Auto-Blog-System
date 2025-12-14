@@ -94,8 +94,15 @@ php artisan migrate --seed
 ```
 
 ### 5. Running the Application
+**Recommended Method** (Runs Server, Queues, and Frontend together):
+```bash
+composer run dev
+```
+OR individually:
 ```bash
 php artisan serve
+php artisan queue:listen
+npm run dev
 ```
 Visit `http://127.0.0.1:8000`
 

@@ -6,6 +6,7 @@ use App\Models\Blog;
 use App\Models\Category;
 use App\Services\BlogGeneratorService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class AdminController extends Controller
@@ -63,13 +64,32 @@ class AdminController extends Controller
         return back()->with('success', 'Blog deleted.');
     }
 
-    public function generate(Request $request, BlogGeneratorService $generator)
+    public function generate(Request $request)
     {
         $request->validate(['category_id' => 'required|exists:categories,id']);
         
-        $category = Category::find($request->category_id);
-        $blog = $generator->generateBlogForCategory($category);
+        $jobId = Str::uuid()->toString();
+        
+        Log::info("Dispatching GenerateBlogJob for Category {$request->category_id} with ID: $jobId");
+        
+        // Dispatch async job
+        \App\Jobs\GenerateBlogJob::dispatch($request->category_id, $jobId);
 
-        return back()->with('success', "Blog generated: {$blog->title}");
+        return response()->json([
+            'success' => true, 
+            'job_id' => $jobId,
+            'message' => 'Job started'
+        ]);
+    }
+
+    public function checkJobStatus($jobId)
+    {
+        $status = \Illuminate\Support\Facades\Cache::get("blog_job_{$jobId}");
+
+        if (!$status) {
+            return response()->json(['status' => 'pending', 'progress' => 0, 'message' => 'Initializing...']);
+        }
+
+        return response()->json($status);
     }
 }

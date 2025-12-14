@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
 
     <title>{{ $meta_title ?? config('app.name', 'Auto Blog System') }}</title>
     <meta name="description" content="{{ $meta_description ?? 'Automated Tech Blogs generated daily.' }}">
@@ -36,13 +37,16 @@
         @endif
 
         <header class="bg-white shadow">
-            <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-                <a href="/" class="text-3xl font-bold tracking-tight text-gray-900">
-                    {{ config('app.name', 'Auto Blog') }}
+            <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 flex flex-wrap justify-between items-center gap-4">
+                <a href="/" class="flex items-center gap-3 hover:opacity-80 transition">
+                    @if(file_exists(public_path('images/logo.webp')))
+                        <img src="{{ asset('images/logo.webp') }}" alt="{{ config('app.name') }}" class="h-10 w-auto">
+                    @endif
+                    <span class="text-3xl font-bold tracking-tight text-gray-900">{{ config('app.name', 'Auto Blog') }}</span>
                 </a>
-                <nav class="hidden md:flex space-x-6">
+                <nav class="flex flex-wrap gap-x-6 gap-y-2">
                     @foreach(\App\Models\Category::all() as $cat)
-                        <a href="{{ route('category', $cat->slug) }}" class="text-gray-600 hover:text-blue-600 uppercase text-sm font-bold">{{ $cat->name }}</a>
+                        <a href="{{ route('category', $cat->slug) }}" class="text-gray-600 hover:text-blue-600 uppercase text-sm font-bold whitespace-nowrap">{{ $cat->name }}</a>
                     @endforeach
                 </nav>
             </div>
@@ -53,11 +57,23 @@
         </main>
         
         <footer class="bg-white border-t mt-12 py-8">
-            <div class="max-w-7xl mx-auto px-4 text-center text-gray-500">
-                &copy; {{ date('Y') }} Auto Blog System. All rights reserved.
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+                    <div class="text-center md:text-left text-gray-500">
+                        &copy; {{ date('Y') }} Auto Blog System. All rights reserved.
+                    </div>
+                    <div class="flex space-x-6">
+                        <a href="{{ route('privacy-policy') }}" class="text-gray-600 hover:text-blue-600">Privacy Policy</a>
+                        <a href="{{ route('terms-conditions') }}" class="text-gray-600 hover:text-blue-600">Terms & Conditions</a>
+                    </div>
+                </div>
             </div>
         </footer>
     </div>
+    
+    @if(View::exists('cookie-consent::index'))
+        @include('cookie-consent::index')
+    @endif
     @livewireScripts
 </body>
 </html>

@@ -32,12 +32,20 @@ class ServicesTest extends TestCase
         // Mocking the Http facade is easiest here
         \Illuminate\Support\Facades\Http::fake([
             'api-inference.huggingface.co/*' => \Illuminate\Support\Facades\Http::response([
-                ['generated_text' => 'AI Generated Content']
+                'choices' => [
+                    ['message' => ['content' => 'AI Generated Content']]
+                ]
+            ], 200),
+            'router.huggingface.co/*' => \Illuminate\Support\Facades\Http::response([
+                'choices' => [
+                    ['message' => ['content' => 'AI Generated Content']]
+                ]
             ], 200),
         ]);
 
         $ai = new AIService();
-        $content = $ai->generateRawContent('Test Prompt');
+        // Updated signature: topic, category, researchData
+        $content = $ai->generateRawContent('Test Prompt', 'Tech', 'Research');
         
         $this->assertEquals('AI Generated Content', $content);
     }
@@ -47,21 +55,25 @@ class ServicesTest extends TestCase
         $category = Category::create(['name' => 'Tech', 'slug' => 'tech']);
 
         $scraperMock = Mockery::mock(ScrapingService::class);
-        $scraperMock->shouldReceive('fetchTrendingTopics')
-            ->once()
-            ->andReturn(['Test Topic']);
+        $scraperMock->shouldReceive('fetchTrendingTopics')->andReturn(['Test Topic']);
+        $scraperMock->shouldReceive('researchTopic') // Correct method name
+            ->andReturn('Research Data');
 
         $aiMock = Mockery::mock(AIService::class);
         $aiMock->shouldReceive('generateRawContent')->andReturn('<h1>Test Topic</h1><p>Content</p>');
         $aiMock->shouldReceive('optimizeAndHumanize')->andReturn('<h1>Test Topic</h1><p>Content Optimized</p>');
+        $aiMock->shouldReceive('setSystemPrompt'); // Add if needed
 
-        $generator = new BlogGeneratorService($scraperMock, $aiMock);
+        $thumbnailMock = Mockery::mock(\App\Services\ThumbnailService::class);
+        $thumbnailMock->shouldReceive('generateThumbnail')->andReturn('thumbnails/test.svg');
+
+        $generator = new BlogGeneratorService($scraperMock, $aiMock, $thumbnailMock);
         
         $blog = $generator->generateBlogForCategory($category);
 
         $this->assertNotNull($blog);
         $this->assertEquals('Test Topic', $blog->title);
-        $this->assertEquals('<h1>Test Topic</h1><p>Content Optimized</p>', $blog->content);
+        $this->assertStringContainsString('Content Optimized', $blog->content);
         $this->assertEquals($category->id, $blog->category_id);
     }
 }

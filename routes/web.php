@@ -30,8 +30,19 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     
     // Manual generation trigger
     Route::post('/generate', [AdminController::class, 'generate'])->name('generate');
+    Route::get('/blog/status/{jobId}', [AdminController::class, 'checkJobStatus'])->name('blog.status');
 });
 
+// Legal Pages
+Route::get('/privacy-policy', function () {
+    return view('legal.privacy-policy');
+})->name('privacy-policy');
+
+Route::get('/terms-conditions', function () {
+    return view('legal.terms-conditions');
+})->name('terms-conditions');
+
+// Sitemap
 Route::get('/sitemap.xml', function () {
     $blogs = \App\Models\Blog::latest()->get();
     return response()->view('sitemap', compact('blogs'))->header('Content-Type', 'text/xml');
