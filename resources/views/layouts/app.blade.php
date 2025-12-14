@@ -18,6 +18,16 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
+    <!-- Google AdSense -->
+    <meta name="google-adsense-account" content="ca-pub-5127564542975092">
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5127564542975092"
+      crossorigin="anonymous"></script>
+    <script>
+      if (window.adsbygoogle && !window.adsbygoogle.loaded) {
+        (adsbygoogle = window.adsbygoogle || []).push({});
+      }
+    </script>
+
     @livewireStyles
 </head>
 <body class="font-sans antialiased bg-gray-50 text-gray-900">
