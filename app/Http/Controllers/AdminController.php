@@ -11,10 +11,38 @@ use Illuminate\Support\Str;
 
 class AdminController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $blogs = Blog::latest()->paginate(20);
-        return view('dashboard', compact('blogs'));
+        // 1. Blog List with Filters
+        $query = Blog::with('category')->latest();
+        
+        if ($request->has('search')) {
+            $query->where('title', 'like', '%' . $request->search . '%');
+        }
+        
+        $blogs = $query->paginate(20)->withQueryString();
+
+        // 2. Analytics Data
+        $totalViews = \App\Models\BlogView::count();
+        
+        // Chart Data: Last 30 Days
+        $chartData = \App\Models\BlogView::selectRaw('DATE(created_at) as date, COUNT(*) as views')
+            ->where('created_at', '>=', now()->subDays(30))
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get();
+            
+        // Most Visited (Top 5)
+        $mostVisited = Blog::orderByDesc('views')->take(5)->get();
+        
+        // Top Countries
+        $topCountries = \App\Models\BlogView::select('country_code', \Illuminate\Support\Facades\DB::raw('count(*) as total'))
+            ->groupBy('country_code')
+            ->orderByDesc('total')
+            ->take(5)
+            ->get();
+
+        return view('dashboard', compact('blogs', 'totalViews', 'chartData', 'mostVisited', 'topCountries'));
     }
 
     public function create()

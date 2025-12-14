@@ -39,7 +39,28 @@ class HomeController extends Controller
         $blog = Blog::where('slug', $slug)->with('category')->firstOrFail();
         
         // Increment views
-        $blog->increment('views');
+        // Analytics Tracking
+        $ip = request()->ip();
+        $userAgent = request()->userAgent();
+        $cacheKey = 'viewed_blog_' . $blog->id . '_' . $ip;
+
+        if (!\Illuminate\Support\Facades\Cache::has($cacheKey)) {
+            // Record view in database
+            \App\Models\BlogView::create([
+                'blog_id' => $blog->id,
+                'ip_address' => $ip,
+                'user_agent' => substr($userAgent, 0, 255), // Truncate if too long for text column? (It's text, so fine)
+                'referer' => substr(request()->header('referer'), 0, 255),
+                'country_code' => request()->header('CF-IPCountry', 'XX'), // Cloudflare support
+                'read_time_seconds' => 0 // Initial load
+            ]);
+
+            // Increment detailed counter (and cache count)
+            $blog->increment('views');
+
+            // Set cooldown for 1 hour
+            \Illuminate\Support\Facades\Cache::put($cacheKey, true, 3600);
+        }
 
         $related = Blog::where('category_id', $blog->category_id)
             ->where('id', '!=', $blog->id)

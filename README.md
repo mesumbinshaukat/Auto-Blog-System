@@ -30,9 +30,15 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 - **SEO Optimized**:
   - Automatic Meta Title & Description generation.
   - OpenGraph tags for social sharing.
-  - Dynamic XML Sitemap (`/sitemap.xml`).
+  - **Dynamic XML Sitemap**: Multi-file architecture (`/sitemap.xml`, `/sitemap/blogs-1.xml`, `/sitemap/categories.xml`) for auto-scaling.
   - `robots.txt` configuration.
   - Keyword density optimization.
+
+- **Professional Analytics Dashboard**:
+  - **Detailed Tracking**: Records IP, User Agent, Referer, and Country (IPv4/IPv6 support).
+  - **Visual Insights**: 30-Day View Trend Line Chart.
+  - **Demographics**: Top Locations table with country flags.
+  - **Anti-Spam**: Smart session buffering to prevent duplicate view counts.
 
 - **Robust Backend**:
   - Admin Dashboard for manual management & generation.
@@ -180,8 +186,12 @@ php artisan test
   - `ThumbnailService.php`: Core logic for content analysis, entity extraction, and multi-tier image generation.
   - `AIService.php`: Handles Gemini/HF interactions for text.
   - `ScrapingService.php`: Trends and content scraping.
-- `app/Jobs/`: Queueable jobs for generation (`ProcessBlogGeneration`) and backups (`BackupDatabase`).
-- `app/Models/`: Eloquent models with custom accessors (e.g., `TableOfContents`).
+- `app/Http/Controllers/`:
+  - `SitemapController.php`: Handles dynamic sitemap generation.
+  - `AdminController.php`: Analytics aggregator and backend management.
+- `app/Models/`: 
+  - `BlogView.php`: Analytics tracking model.
+  - `Blog.php`: Core content model with custom accessors.
 - `tests/Feature/`: Comprehensive feature tests including API integration mocks.
 
 ---

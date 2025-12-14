@@ -43,10 +43,12 @@ Route::get('/terms-conditions', function () {
     return view('legal.terms-conditions');
 })->name('terms-conditions');
 
-// Sitemap
-Route::get('/sitemap.xml', function () {
-    $blogs = \App\Models\Blog::latest()->get();
-    return response()->view('sitemap', compact('blogs'))->header('Content-Type', 'text/xml');
+// Sitemap Routes
+Route::controller(\App\Http\Controllers\SitemapController::class)->group(function () {
+    Route::get('/sitemap.xml', 'index')->name('sitemap.index');
+    Route::get('/sitemap/pages.xml', 'pages')->name('sitemap.pages');
+    Route::get('/sitemap/categories.xml', 'categories')->name('sitemap.categories');
+    Route::get('/sitemap/blogs-{page?}.xml', 'blogs')->name('sitemap.blogs');
 });
 
 // Manual Trigger for "Poor Man's Cron" Scheduler

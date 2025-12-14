@@ -161,6 +161,84 @@
         </div>
     </div>
 
+    <!-- Analytics Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <!-- Main Chart -->
+        <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow-sm">
+            <h3 class="text-lg font-semibold mb-4 text-gray-700">Views Overview (Last 30 Days)</h3>
+            <div style="position: relative; height: 300px; width: 100%;">
+                <canvas id="viewsChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Top Stats -->
+        <div class="space-y-6">
+            <!-- Most Visited -->
+            <div class="bg-white p-6 rounded-lg shadow-sm">
+                <h3 class="text-lg font-semibold mb-4 text-gray-700">Most Visited Blogs</h3>
+                <ul class="space-y-3">
+                    @foreach($mostVisited as $mv)
+                    <li class="flex justify-between items-center text-sm">
+                        <span class="truncate w-48 text-gray-600" title="{{ $mv->title }}">{{ $mv->title }}</span>
+                        <span class="font-bold text-blue-600">{{ number_format($mv->views) }}</span>
+                    </li>
+                    @endforeach
+                </ul>
+            </div>
+
+            <!-- Top Countries -->
+            <div class="bg-white p-6 rounded-lg shadow-sm">
+                <h3 class="text-lg font-semibold mb-4 text-gray-700">Top Locations</h3>
+                <ul class="space-y-3">
+                    @foreach($topCountries as $tc)
+                    <li class="flex justify-between items-center text-sm">
+                        <div class="flex items-center">
+                            <img src="https://flagcdn.com/24x18/{{ strtolower($tc->country_code) }}.png" 
+                                 class="mr-2 w-4 h-3 object-cover rounded-sm" 
+                                 onerror="this.style.display='none'"> 
+                            <span class="text-gray-600">{{ $tc->country_code }}</span>
+                        </div>
+                        <span class="font-bold text-green-600">{{ number_format($tc->total) }}</span>
+                    </li>
+                    @endforeach
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart.js Integration -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const ctx = document.getElementById('viewsChart').getContext('2d');
+        const chartData = @json($chartData);
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartData.map(d => d.date),
+                datasets: [{
+                    label: 'Daily Views',
+                    data: chartData.map(d => d.views),
+                    borderColor: 'rgb(79, 70, 229)',
+                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { borderDash: [2, 4] } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+    </script>
+
     @if(session('success'))
         <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-6" role="alert">
             <span class="block sm:inline">{{ session('success') }}</span>
