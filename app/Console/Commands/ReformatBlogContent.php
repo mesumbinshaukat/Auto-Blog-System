@@ -56,9 +56,9 @@ class ReformatBlogContent extends Command
                     continue;
                 }
 
-                $this->info("\nReformatting: " . $blog->title);
+                $this->info("\nOptimizing & Humanizing: " . $blog->title);
 
-                // Use optimizeAndHumanize which enforces structure and returns ['content', 'toc']
+                // optimizeAndHumanize now handles regex cleaning for em dashes
                 $optimizedData = $this->aiService->optimizeAndHumanize($blog->content);
                 $newContent = $optimizedData['content'];
                 $toc = $optimizedData['toc'];

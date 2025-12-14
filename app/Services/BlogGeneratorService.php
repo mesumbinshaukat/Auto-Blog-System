@@ -62,18 +62,9 @@ class BlogGeneratorService
         // 7. Generate slug
         $slug = Str::slug($title . '-' . now()->timestamp);
 
-        $onProgress && $onProgress('Generating thumbnail...', 85);
-        // 8. Generate thumbnail
-        $thumbnailPath = $this->thumbnailService->generateThumbnail(
-            $slug,
-            $title,
-            $finalContent,
-            $category->name
-        );
-
-        $onProgress && $onProgress('Saving to database...', 95);
-        // 9. Save
-        return Blog::create([
+        // 8. Create Blog record first to get ID
+        $onProgress && $onProgress('Saving initial record...', 85);
+        $blog = Blog::create([
             'title' => $title,
             'slug' => $slug,
             'content' => $finalContent,
@@ -82,8 +73,25 @@ class BlogGeneratorService
             'meta_title' => Str::limit($title, 60),
             'meta_description' => Str::limit(strip_tags($finalContent), 160),
             'tags_json' => [$category->name, 'Trending', 'AI Generated', $topic],
-            'table_of_contents_json' => $toc, // Save TOC
-            'thumbnail_path' => $thumbnailPath,
+            'table_of_contents_json' => $toc,
+            'thumbnail_path' => null, // Placeholder
         ]);
+
+        $onProgress && $onProgress('Generating thumbnail...', 90);
+        // 9. Generate thumbnail with ID
+        $thumbnailPath = $this->thumbnailService->generateThumbnail(
+            $slug,
+            $title,
+            $finalContent,
+            $category->name,
+            $blog->id // Pass the ID
+        );
+
+        // 10. Update blog with actual thumbnail
+        $blog->update(['thumbnail_path' => $thumbnailPath]);
+        
+        $onProgress && $onProgress('Done!', 100);
+        
+        return $blog;
     }
 }

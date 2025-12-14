@@ -11,7 +11,10 @@ class HomeController extends Controller
     public function index()
     {
         $latest = Blog::with('category')->latest('published_at')->take(5)->get();
-        $categories = Category::all();
+        // Eager load 6 latest blogs for each category for the carousels
+        $categories = Category::with(['blogs' => function($query) {
+            $query->latest('published_at')->take(6);
+        }])->get();
         
         // Group recent blogs by category for the grid
         $feed = Blog::with('category')

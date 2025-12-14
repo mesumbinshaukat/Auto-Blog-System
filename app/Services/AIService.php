@@ -182,6 +182,11 @@ Begin writing the blog post now:";
         // Remove markdown code blocks if present
         $content = preg_replace('/```html\s*/', '', $content);
         $content = preg_replace('/```\s*$/', '', $content);
+        
+        // Universal cleanup for em dashes as requested
+        $content = preg_replace('/—/', ' - ', $content);
+        $content = preg_replace('/–/', '-', $content); // En dash
+        
         $content = trim($content);
         
         return $content;
@@ -222,10 +227,13 @@ Begin writing the blog post now:";
 Requirements:
 1. **Split long paragraphs**: If a paragraph has >3 sentences, split it. 
 2. Ensure <p> tags are used correctly.
-3. Remove robotic patterns and em dashes.
-4. Add 'comparison-table' class to tables.
-5. Maintain all headings and structure.
-6. Return ONLY the HTML.
+3. **STRICTLY REMOVE EM DASHES (—)**: Replace them with commas, parentheses, or separate sentences. Do NOT use em dashes.
+   - Bad: \"AI—once niche—is now...\"
+   - Good: \"AI, once niche, is now...\" or \"AI was once niche but is now...\"
+4. **Humanize**: Vary sentence structure, use contractions (e.g., \"it's\", \"don't\"), and ensure a conversational tone.
+5. Add 'comparison-table' class to tables.
+6. Maintain all headings and structure.
+7. Return ONLY the HTML.
 
 Content:
 " . substr($content, 0, 15000);
@@ -247,6 +255,11 @@ Content:
                 
                 if ($optimized) {
                     $cleaned = $this->cleanContent($optimized);
+                    
+                    // Regex Fallback: Force remove any remaining em dashes
+                    $cleaned = preg_replace('/—/', ' - ', $cleaned);
+                    $cleaned = preg_replace('/–/', '-', $cleaned); // En dash to hyphen
+                    
                     return $this->validateAndFixHtml($cleaned);
                 }
             }

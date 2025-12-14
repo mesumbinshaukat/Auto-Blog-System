@@ -22,7 +22,7 @@ class ThumbnailService
     /**
      * Generate thumbnail for a blog post
      */
-    public function generateThumbnail(string $slug, string $title, string $content, string $category): ?string
+    public function generateThumbnail(string $slug, string $title, string $content, string $category, ?int $blogId = null): ?string
     {
         try {
             // Step 1: Analyze content with Gemini
@@ -30,11 +30,16 @@ class ThumbnailService
             
             if (!$analysis) {
                 Log::warning("Failed to analyze content for thumbnail. Using fallback.");
-                return $this->generateFallbackThumbnail($slug, $category);
+                return $this->generateFallbackThumbnail($slug, $category, $blogId);
             }
 
             // Step 2: Generate SVG-based thumbnail
             $svgContent = $this->generateSVGThumbnail($analysis);
+            
+            // Inject Blog ID Overlay if provided
+            if ($blogId) {
+                $svgContent = $this->addIdOverlay($svgContent, $blogId);
+            }
             
             // Step 3: Convert to WebP and save
             $thumbnailPath = $this->saveAsSvg($slug, $svgContent);
@@ -49,8 +54,24 @@ class ThumbnailService
         }
 
         // Fallback
-        return $this->generateFallbackThumbnail($slug, $category);
+        return $this->generateFallbackThumbnail($slug, $category, $blogId);
     }
+
+    protected function addIdOverlay(string $svg, int $id): string
+    {
+        // Inject text at bottom right
+        $overlay = <<<SVG
+<text x="1180" y="610" font-family="Arial, sans-serif" font-size="24" fill="white" stroke="black" stroke-width="0.5" text-anchor="end" opacity="0.6">Blog ID: {$id}</text>
+</svg>
+SVG;
+        return str_replace('</svg>', $overlay, $svg);
+    }
+// ... analyzeContent remains same ...
+
+// ... generateSVGThumbnail remains same ...
+
+// ... saveAsSvg remains same ...
+
 
     /**
      * Analyze content using Gemini to extract niche, topic, and visual style
@@ -199,7 +220,7 @@ SVG;
     /**
      * Generate fallback thumbnail based on category
      */
-    protected function generateFallbackThumbnail(string $slug, string $category): string
+    protected function generateFallbackThumbnail(string $slug, string $category, ?int $blogId = null): string
     {
         $categoryColors = [
             'Technology' => ['#3B82F6', '#1E40AF'],
@@ -225,6 +246,10 @@ SVG;
   <text x="600" y="340" font-family="Arial, sans-serif" font-size="48" fill="white" text-anchor="middle" opacity="0.8">$category</text>
 </svg>
 SVG;
+
+        if ($blogId) {
+            $svg = $this->addIdOverlay($svg, $blogId);
+        }
 
         return $this->saveAsSvg($slug, $svg);
     }

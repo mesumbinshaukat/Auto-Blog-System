@@ -25,6 +25,15 @@
                 </div>
             </header>
 
+            <!-- Featured Image -->
+            @if($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path))
+                <figure class="mb-8">
+                    <img src="{{ asset('storage/' . $blog->thumbnail_path) }}" 
+                         alt="{{ $blog->title }}" 
+                         class="w-full h-auto rounded-xl shadow-lg object-cover max-h-[500px]">
+                </figure>
+            @endif
+
             <!-- Mobile TOC -->
             <div class="lg:hidden mb-8 bg-gray-50 p-4 rounded border">
                 <h3 class="font-bold text-gray-700 mb-2">Table of Contents</h3>
