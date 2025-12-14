@@ -82,6 +82,37 @@ class AdminController extends Controller
         ]);
     }
 
+    public function generateMultiple(Request $request)
+    {
+        $validated = $request->validate([
+            'category_id' => 'nullable|exists:categories,id',
+            'count' => 'integer|min:1|max:5'
+        ]);
+
+        $count = $validated['count'] ?? 5;
+        $categoryId = $validated['category_id'] ?? null;
+        
+        // If no category specified, pick random ones or cycle
+        $jobs = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            $catId = $categoryId;
+            if (!$catId) {
+                $catId = Category::inRandomOrder()->value('id');
+            }
+
+            $jobId = Str::uuid()->toString();
+            \App\Jobs\GenerateBlogJob::dispatch($catId, $jobId);
+            $jobs[] = $jobId;
+        }
+
+        return response()->json([
+            'success' => true,
+            'job_ids' => $jobs,
+            'message' => "Started generation of $count blogs."
+        ]);
+    }
+
     public function checkJobStatus($jobId)
     {
         $status = \Illuminate\Support\Facades\Cache::get("blog_job_{$jobId}");

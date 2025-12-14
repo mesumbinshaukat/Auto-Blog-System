@@ -111,12 +111,13 @@ Return ONLY the HTML content, no markdown code blocks.";
         $prompt = "Write a comprehensive blog post about \"$topic\" in the $category category.\n\n";
         
         if (!empty($researchData)) {
-            $prompt .= "RESEARCH CONTEXT:\n$researchData\n\n";
+            $prompt .= "RESEARCH CONTEXT (Use as inspiration, do NOT copy):\n$researchData\n\n";
+            $prompt .= "IMPORTANT: This is real news/data. IMPROVISE and REPHRASE everything in your own words. Add original insights. Do not plagiarize.\n\n";
         }
 
         $prompt .= "INSTRUCTIONS:
 - Create an engaging, informative article.
-- Use the research context.
+- Use the research context but maintain originality.
 - **Limit paragraphs to 2-4 sentences**. No walls of text.
 - If comparison topic, use <table class='comparison-table'>.
 - Natural keyword integration.

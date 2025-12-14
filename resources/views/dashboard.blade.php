@@ -12,7 +12,7 @@
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500">
             <div class="text-gray-500 text-sm uppercase">Total Blogs</div>
             <div class="text-3xl font-bold">{{ \App\Models\Blog::count() }}</div>
@@ -22,15 +22,12 @@
             <div class="text-3xl font-bold">{{ \App\Models\Blog::sum('views') }}</div>
         </div>
          <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-purple-500">
-            <div class="text-gray-500 text-sm uppercase">Manual Generation</div>
+            <div class="text-gray-500 text-sm uppercase">Manual Gen (Single)</div>
             <div x-data="{ 
                 loading: false, 
                 progress: 0, 
                 statusMessage: '', 
                 jobId: null,
-                init() {
-                    // Check if there's a stored job? For now, simple session.
-                },
                 async startGeneration() {
                     this.loading = true;
                     this.progress = 5;
@@ -104,6 +101,61 @@
                         <div class="bg-purple-600 h-2.5 rounded-full transition-all duration-500" :style="'width: ' + progress + '%'"></div>
                     </div>
                     <p x-show="loading" class="text-xs text-gray-500" x-text="statusMessage"></p>
+                </form>
+            </div>
+        </div>
+
+        <!-- Batch Generation Card -->
+        <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-indigo-500">
+            <div class="text-gray-500 text-sm uppercase">Batch Gen (5 Blogs)</div>
+            <div x-data="{ 
+                loading: false, 
+                message: '',
+                async startBatch() {
+                    this.loading = true;
+                    this.message = 'Starting batch...';
+                    
+                    try {
+                        let formData = new FormData(this.$refs.batchForm);
+                        let response = await fetch('{{ route('admin.generate.batch') }}', {
+                            method: 'POST',
+                            body: formData,
+                            headers: {
+                                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                'Accept': 'application/json'
+                            }
+                        });
+                        
+                        let data = await response.json();
+                        
+                        if (data.success) {
+                            this.message = 'Batch started! (Check logs)';
+                            setTimeout(() => { window.location.reload() }, 2000);
+                        } else {
+                            this.message = 'Failed: ' + data.message;
+                            this.loading = false;
+                        }
+                    } catch (e) {
+                         this.message = 'Error: ' + e.message;
+                         this.loading = false;
+                    }
+                }
+            }">
+                <form x-ref="batchForm" @submit.prevent="startBatch" class="mt-2 flex flex-col space-y-2">
+                    <input type="hidden" name="count" value="5">
+                    <div class="flex space-x-2">
+                        <select name="category_id" class="text-sm border rounded p-1 w-full">
+                            <option value="">Random Categories</option>
+                            @foreach(\App\Models\Category::all() as $cat)
+                                <option value="{{ $cat->id }}">{{ $cat->name }}</option>
+                            @endforeach
+                        </select>
+                        <button type="submit" class="bg-indigo-600 text-white text-xs px-3 py-1 rounded hover:bg-indigo-700 flex items-center disabled:opacity-50" :disabled="loading">
+                            <span x-show="!loading">5x</span>
+                            <span x-show="loading">...</span>
+                        </button>
+                    </div>
+                    <p x-show="message" class="text-xs text-gray-600 mt-2" x-text="message"></p>
                 </form>
             </div>
         </div>

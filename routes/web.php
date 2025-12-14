@@ -30,6 +30,7 @@ Route::middleware(['auth'])->prefix('admin')->name('admin.')->group(function () 
     
     // Manual generation trigger
     Route::post('/generate', [AdminController::class, 'generate'])->name('generate');
+    Route::post('/generate-batch', [AdminController::class, 'generateMultiple'])->name('generate.batch');
     Route::get('/blog/status/{jobId}', [AdminController::class, 'checkJobStatus'])->name('blog.status');
 });
 
