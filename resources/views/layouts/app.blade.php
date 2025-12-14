@@ -14,8 +14,8 @@
     <meta property="og:description" content="{{ $meta_description ?? 'Automated Tech Blogs generated daily.' }}">
     <meta property="og:type" content="article">
     <meta property="og:url" content="{{ url()->current() }}">
-    <meta property="og:image" content="{{ $og_image ?? asset('images/Blogs Logo (150 x 150 px).png') }}">
-    <meta name="twitter:image" content="{{ $og_image ?? asset('images/Blogs Logo (150 x 150 px).png') }}">
+    <meta property="og:image" content="{{ $og_image ?? asset('images/Blogs Logo (150 x 150 px)(1).png') }}">
+    <meta name="twitter:image" content="{{ $og_image ?? asset('images/Blogs Logo (150 x 150 px)(1).png') }}">
     <meta name="twitter:card" content="summary">
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
