@@ -65,8 +65,10 @@ Run the email test and scheduler check locally to ensure everything is wired up:
 php artisan test:email --to=admin@worldoftech.company
 php artisan schedule:test
 ```
+*Note: The scheduler is configured to generate 5 blogs per day, spaced out by ~3.5 hours.*
 
 ---
 ## Troubleshooting
 - **Thumbnails not showing?** Run `php artisan storage:link`.
-- **Jobs failing?** Check `storage/logs/laravel.log` and ensure `php artisan queue:work` is running (supervisor recommended).
+- **Jobs failing?** Check `storage/logs/laravel.log`. Ensure `php artisan queue:work` is running (Supervisor is recommended for production).
+- **Batch Generation stuck?** Ensure your server allows outbound requests to RSS feeds (Firewall/DNS).
