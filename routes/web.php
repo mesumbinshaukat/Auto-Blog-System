@@ -48,3 +48,20 @@ Route::get('/sitemap.xml', function () {
     $blogs = \App\Models\Blog::latest()->get();
     return response()->view('sitemap', compact('blogs'))->header('Content-Type', 'text/xml');
 });
+
+// Manual Trigger for "Poor Man's Cron" Scheduler
+Route::get('/trigger-scheduler', function () {
+    // Force run daily scheduler logic 
+    // We simulate it by clearing cache and dispatching
+    \Illuminate\Support\Facades\Cache::forget('last_daily_run');
+    \Illuminate\Support\Facades\Cache::forget('daily_scheduler_lock');
+    
+    $job = new \App\Jobs\GenerateDailyBlogs();
+    $job->handle();
+    
+    return response()->json([
+        'status' => 'success', 
+        'message' => 'Scheduler triggered manually. 5 blogs should be queued.',
+        'time' => now()->toDateTimeString()
+    ]);
+});

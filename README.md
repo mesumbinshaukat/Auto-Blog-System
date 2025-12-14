@@ -129,12 +129,17 @@ Visit `http://127.0.0.1:8000`
    - The system will scrape a trending topic, research it, and generate a post.
    - Process usually takes 30-60 seconds.
 
-### Automated Scheduling
-To run the scheduler locally:
-```bash
-php artisan schedule:work
-```
-This will trigger the `GenerateDailyBlogs` job which schedules 5 posts throughout the day.
+### Smart Middleware Scheduling ("Poor Man's Cron")
+The system uses an intelligent middleware-based scheduler, eliminating the need for external cron jobs on shared hosting.
+
+- **How it works**:
+  - Every time a user visits the site, the `CheckScheduler` middleware runs.
+  - It checks if the daily blog generation has run in the last 24 hours.
+  - If not, it dispatches the daily batch of 5 blogs.
+  - It also processes one queued job per request (non-blocking) to keep the queue moving.
+  
+To manually trigger the schedule (for testing):
+Visit `/trigger-scheduler` (adds jobs to queue instantly).
 
 ### Thumbnail Regeneration (New)
 The system ensures unique thumbnails. You can bulk regenerate them:

@@ -32,19 +32,25 @@ class GenerateDailyBlogs implements ShouldQueue
         $scheduledTimes = [];
 
         for ($i = 0; $i < 5; $i++) {
-            // Add minimum 3.5 hours (210 mins) + random buffer (0-60 mins)
-            $delayMinutes = ($i * 210) + rand(0, 60);
-            $scheduleAt = $startTime->copy()->addMinutes($delayMinutes);
+            // Add minimum 3.5 hours (210 mins) + random buffer (0-120 mins) for organic spread
+            // 3.5h, 7h+rand, 10.5h+rand... 
+            // Better: Base interval + jitter
+            $baseDelayMinutes = ($i * 210); // 3.5 hours * i
+            $randomJitter = rand(0, 120); // 0-2 hours jitter
             
-            $scheduledTimes[] = $scheduleAt;
-
-            // Pick random category
+            $delayMinutes = $baseDelayMinutes + $randomJitter;
+            
+            $scheduleAt = Carbon::now()->addMinutes($delayMinutes);
+            
+            // Pick random category (fresh random each time)
             $category = $categories->random();
 
             ProcessBlogGeneration::dispatch($category->id)
                 ->delay($scheduleAt);
                 
-            Log::info("Scheduled blog for {$category->name} at {$scheduleAt}");
+            Log::info("Scheduler: Queued blog for {$category->name} at {$scheduleAt->toDateTimeString()}");
         }
+        
+        Log::info("Scheduler: Successfully scheduled 5 blogs.");
     }
 }
