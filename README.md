@@ -1,13 +1,18 @@
 # Auto Blog System 🤖✍️
 
-A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewire, and Tailwind CSS. The system autonomously scrapes trending topics, generates research-backed content using AI (Hugging Face + Gemini), enhances it for SEO, and publishes daily posts.
+A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewire, and Tailwind CSS. The system autonomously scrapes trending topics, generates research-backed content using a redundant AI architecture (Gemini + Hugging Face), enhances it for SEO, and publishes daily posts.
 
 ## 🌟 Features
 
 - **Automated Content Generation**:
   - Scrapes trending topics from Google Trends and Wikipedia.
-  - Uses **Hugging Face (GPT-Neo 1.3B)** for initial draft generation.
-  - Uses **Google Gemini 1.5 Flash** for optimization, humanization, and HTML formatting.
+  - **Dual-AI Architecture**:
+    - **Primary**: Google Gemini 1.5/2.0 Flash for optimization, humanization, and HTML formatting.
+    - **Secondary**: Hugging Face (GPT-Neo 1.3B) for initial drafts and fallback generation.
+  - **Unique Thumbnails**:
+    - Deep content analysis (2000 chars) + Entity Extraction (10+ patterns like "iPhone", "AI", "Trains").
+    - **Smart Redundancy**: Gemini 2.0 Flash (SVG analysis) → Hugging Face FLUX.1 (WebP generation) → Category Fallback.
+    - Uniqueness validation (80% similarity threshold) to prevent generic images.
   - Generates structured content with H1-H6 headings, paragraphs, and tables.
   - Auto-extracts tags and meta descriptions.
 
@@ -31,6 +36,7 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 
 - **Robust Backend**:
   - Admin Dashboard for manual management & generation.
+  - **Self-Healing Diagnostics**: Scripts to test Cron Jobs and Queue Workers on production.
   - Daily SQLite backups with retention policy (last 7 days).
   - Soft deletes for safety.
   - Comprehensive error handling and email notifications.
@@ -40,7 +46,9 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 - **Framework**: Laravel 11.x (compatible with 12.x structure)
 - **Frontend**: Livewire, Blade, Tailwind CSS, Alpine.js
 - **Database**: MySQL (Primary), SQLite (Backups)
-- **AI Services**: Hugging Face Inference API, Google Gemini API
+- **AI Services**:
+  - **Google Gemini API** (Primary Content & Analysis)
+  - **Hugging Face Inference API** (Redundancy & Image Generation)
 - **Scraping**: Guzzle, Symfony DomCrawler
 
 ## 🚀 Installation & Setup
@@ -128,6 +136,19 @@ php artisan schedule:work
 ```
 This will trigger the `GenerateDailyBlogs` job which schedules 5 posts throughout the day.
 
+### Thumbnail Regeneration (New)
+The system ensures unique thumbnails. You can bulk regenerate them:
+```bash
+# Regenerate only if similarity > 80%
+php artisan thumbnails:regenerate
+
+# Force regenerate all
+php artisan thumbnails:regenerate --force
+
+# Test with limit
+php artisan thumbnails:regenerate --limit=5
+```
+
 ### Testing Real Content (Seeder)
 To mass-generate 3 high-quality blogs for testing:
 ```bash
@@ -143,13 +164,17 @@ php artisan test
 
 ## ⚠️ Edge Cases & Troubleshooting
 
-- **AI Content Too Short**: If API keys are missing or invalid, the system falls back to a mock generation system to ensure the site doesn't break. Check logs (`storage/logs/laravel.log`) for API errors.
+- **AI Quota Exceeded (429)**: The system automatically fails over from Gemini to Hugging Face FLUX.1. If both fail, it uses a generic SVG fallback.
+- **Queue Not Processing**: Production environments may need diagnostic scripts. Check `cron_test_queue.php` in the root (if uploaded) to debug cron execution.
 - **SSL Certificate Errors**: For local development `verify` is set to `false` in Guzzle clients to avoid certificate issues. Ensure this is enabled for production.
-- **Rate Limits**: The system implements exponential backoff (retries) for API calls. If limits are hit, it logs the error and sends an email.
+- **Rate Limits**: The system implements exponential backoff (retries) for API calls.
 
 ## 📂 Directory Structure
 
-- `app/Services/`: Core logic for AI (`AIService`) and Scraping (`ScrapingService`).
+- `app/Services/`: 
+  - `ThumbnailService.php`: Core logic for content analysis, entity extraction, and multi-tier image generation.
+  - `AIService.php`: Handles Gemini/HF interactions for text.
+  - `ScrapingService.php`: Trends and content scraping.
 - `app/Jobs/`: Queueable jobs for generation (`ProcessBlogGeneration`) and backups (`BackupDatabase`).
 - `app/Models/`: Eloquent models with custom accessors (e.g., `TableOfContents`).
 - `tests/Feature/`: Comprehensive feature tests including API integration mocks.
