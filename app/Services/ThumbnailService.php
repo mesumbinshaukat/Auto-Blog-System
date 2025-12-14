@@ -11,11 +11,13 @@ use Intervention\Image\Drivers\Gd\Driver;
 class ThumbnailService
 {
     protected $geminiKey;
+    protected $hfToken;
     protected $imageManager;
 
     public function __construct()
     {
         $this->geminiKey = env('GEMINI_API_KEY');
+        $this->hfToken = env('HUGGINGFACE_API_KEY');
         $this->imageManager = new ImageManager(new Driver());
     }
 
@@ -81,9 +83,179 @@ class ThumbnailService
             }
         }
         
-        // All attempts failed, use fallback
-        Log::warning("All thumbnail generation attempts failed, using fallback");
+        // All Gemini attempts failed, try Hugging Face fallback before SVG
+        Log::warning("All Gemini thumbnail generation attempts failed, trying Hugging Face fallback");
+        
+        try {
+            $hfPath = $this->generateWithHuggingFace($slug, $title, $content, $category, $blogId);
+            if ($hfPath) {
+                Log::info("Successfully generated thumbnail with Hugging Face fallback");
+                return $hfPath;
+            }
+        } catch (\Exception $e) {
+            Log::error("Hugging Face fallback also failed: " . $e->getMessage());
+        }
+        
+        // Final fallback to SVG
+        Log::warning("All AI generation attempts failed, using SVG fallback");
         return $this->generateFallbackThumbnail($slug, $category, $blogId);
+    }
+
+    /**
+     * Generate thumbnail using Hugging Face FLUX.1-schnell as fallback
+     */
+    protected function generateWithHuggingFace(string $slug, string $title, string $content, string $category, ?int $blogId = null): ?string
+    {
+        if (empty($this->hfToken)) {
+            Log::warning("HUGGINGFACE_API_KEY not configured for thumbnail generation.");
+            return null;
+        }
+
+        $maxAttempts = 3;
+        $attempt = 0;
+        
+        while ($attempt < $maxAttempts) {
+            try {
+                // Extract topic elements for prompt enhancement
+                $topicElements = $this->extractTopicElements($content);
+                $elementsText = !empty($topicElements) ? implode(', ', $topicElements) : 'abstract tech design';
+                
+                // Build enhanced prompt for FLUX.1-schnell
+                $prompt = $this->buildHuggingFacePrompt($title, $category, $elementsText, $blogId);
+                
+                Log::info("Calling Hugging Face FLUX.1-schnell API (attempt " . ($attempt + 1) . ")");
+                
+                // Call Hugging Face Inference API (updated endpoint as of Dec 2024)
+                $response = Http::withOptions(['verify' => false])
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $this->hfToken,
+                    ])->timeout(60)->post('https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell', [
+                        'inputs' => $prompt,
+                    ]);
+
+                if ($response->successful()) {
+                    // Response is binary image data
+                    $imageData = $response->body();
+                    
+                    if (empty($imageData)) {
+                        Log::error("Hugging Face returned empty image data");
+                        $attempt++;
+                        sleep(2); // Wait before retry
+                        continue;
+                    }
+                    
+                    // Convert to WebP and resize
+                    $thumbnailPath = $this->processHuggingFaceImage($imageData, $slug, $blogId);
+                    
+                    if ($thumbnailPath) {
+                        Log::info("Hugging Face thumbnail generated successfully: $thumbnailPath");
+                        return $thumbnailPath;
+                    }
+                } else {
+                    $status = $response->status();
+                    $body = $response->body();
+                    
+                    Log::error("Hugging Face API request failed. Status: $status, Body: " . substr($body, 0, 500));
+                    
+                    // Check if it's a rate limit or model loading error
+                    if ($status === 503) {
+                        Log::info("Model is loading, waiting 20 seconds before retry...");
+                        sleep(20);
+                    } elseif ($status === 429) {
+                        Log::warning("Hugging Face rate limit exceeded");
+                        return null; // Don't retry on rate limit
+                    } else {
+                        sleep(2); // Wait before retry for other errors
+                    }
+                }
+                
+                $attempt++;
+                
+            } catch (\Exception $e) {
+                Log::error("Hugging Face generation attempt " . ($attempt + 1) . " exception: " . $e->getMessage());
+                $attempt++;
+                sleep(2);
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Build enhanced prompt for Hugging Face FLUX.1-schnell
+     */
+    protected function buildHuggingFacePrompt(string $title, string $category, string $elementsText, ?int $blogId): string
+    {
+        $prompt = "Professional blog thumbnail image, high quality, 4K resolution, 16:9 aspect ratio, ";
+        $prompt .= "centered composition, modern design, ";
+        $prompt .= "Topic: $title, ";
+        $prompt .= "Category: $category, ";
+        $prompt .= "Visual elements: $elementsText, ";
+        $prompt .= "Style: clean, vibrant colors, professional lighting, ";
+        $prompt .= "NO TEXT except subtle 'Blog ID: $blogId' in bottom-right corner at 20% opacity, ";
+        $prompt .= "abstract and visually appealing, suitable for tech blog header";
+        
+        return $prompt;
+    }
+
+    /**
+     * Process Hugging Face image: convert to WebP, resize, and save
+     */
+    protected function processHuggingFaceImage(string $imageData, string $slug, ?int $blogId): ?string
+    {
+        try {
+            // Create image from binary data
+            $image = $this->imageManager->read($imageData);
+            
+            // Resize to 1200x630 (maintaining aspect ratio, then crop)
+            $image->cover(1200, 630);
+            
+            // Add Blog ID overlay if provided
+            if ($blogId) {
+                // Simple text overlay (Intervention Image v3 syntax)
+                // Note: This requires GD with freetype support
+                // If text fails, image will still save without it
+                try {
+                    $image->text("Blog ID: $blogId", 1150, 600, function($font) {
+                        $font->file(public_path('fonts/arial.ttf')); // Fallback to default if not exists
+                        $font->size(20);
+                        $font->color('ffffff');
+                        $font->align('right');
+                        $font->valign('bottom');
+                    });
+                } catch (\Exception $e) {
+                    Log::warning("Could not add text overlay to HF image: " . $e->getMessage());
+                }
+            }
+            
+            // Ensure directory exists
+            $directory = storage_path('app/public/thumbnails');
+            if (!file_exists($directory)) {
+                mkdir($directory, 0755, true);
+            }
+            
+            // Save as WebP with 80% quality
+            $filename = "{$slug}.webp";
+            $path = "thumbnails/{$filename}";
+            $fullPath = storage_path("app/public/{$path}");
+            
+            $image->toWebp(80)->save($fullPath);
+            
+            // Check file size
+            $size = filesize($fullPath);
+            Log::info("Hugging Face thumbnail saved: $filename ($size bytes)");
+            
+            if ($size > 500 * 1024) { // If > 500KB, reduce quality
+                Log::warning("Thumbnail too large ($size bytes), re-saving with lower quality");
+                $image->toWebp(60)->save($fullPath);
+            }
+            
+            return $path;
+            
+        } catch (\Exception $e) {
+            Log::error("Failed to process Hugging Face image: " . $e->getMessage());
+            return null;
+        }
     }
 
     /**
@@ -153,7 +325,9 @@ class ThumbnailService
             return null;
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}";
+        // Use v1beta with gemini-2.0-flash-exp (current experimental model as of Dec 2024)
+        // Fallback: Try gemini-2.0-flash-exp-latest if this fails
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$this->geminiKey}";
         
         $elementsText = !empty($topicElements) ? implode(', ', $topicElements) : 'none detected';
         
@@ -192,11 +366,20 @@ CRITICAL REQUIREMENTS:
                     ]
                 ]);
 
+            // Log response status for debugging
+            Log::info("Gemini API response status: " . $response->status());
+            
             if ($response->successful()) {
                 $data = $response->json();
+                
+                // Log raw response for debugging
+                Log::info("Gemini API raw response: " . json_encode($data));
+                
                 $content = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
                 
                 if ($content) {
+                    Log::info("Gemini API content extracted: " . substr($content, 0, 500));
+                    
                     // Extract JSON from response (handle code blocks)
                     if (preg_match('/```json\s*(\{.*?\})\s*```/s', $content, $matches)) {
                         $jsonStr = $matches[1];
@@ -210,12 +393,20 @@ CRITICAL REQUIREMENTS:
                         if ($analysis) {
                             Log::info("Content analyzed for thumbnail: " . json_encode($analysis));
                             return $analysis;
+                        } else {
+                            Log::error("JSON decode failed. JSON string was: " . $jsonStr);
                         }
+                    } else {
+                        Log::error("No JSON found in Gemini response. Content was: " . $content);
                     }
+                } else {
+                    Log::error("No content in Gemini response. Full data: " . json_encode($data));
                 }
+            } else {
+                Log::error("Gemini API request failed. Status: " . $response->status() . ", Body: " . $response->body());
             }
         } catch (\Exception $e) {
-            Log::error("Gemini analysis failed: " . $e->getMessage());
+            Log::error("Gemini analysis exception: " . $e->getMessage() . " | Trace: " . $e->getTraceAsString());
         }
 
         return null;
