@@ -109,7 +109,7 @@
                      class="relative w-full max-w-xs bg-white shadow-xl flex flex-col h-full overflow-y-auto">
                     
                     <div class="px-6 py-6 flex items-center justify-between border-b border-gray-100">
-                        <img src="{{ asset('images/logo.png') }}" alt="{{ config('app.name') }}" class="h-8 w-auto">
+                        <img src="{{ asset('images/logo.webp') }}" alt="{{ config('app.name') }}" class="h-8 w-auto">
                         <button @click="mobileMenuOpen = false" type="button" class="text-gray-400 hover:text-gray-500 focus:outline-none">
                             <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
