@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}">
+    <link rel="icon" type="image/x-icon" href="../images/Blogs Logo (150 x 150 px).png">
 
     <title>{{ $meta_title ?? config('app.name', 'Auto Blog System') }}</title>
     <meta name="description" content="{{ $meta_description ?? 'Automated Tech Blogs generated daily.' }}">
@@ -38,7 +38,7 @@
                     <!-- Logo (No Text) -->
                     <div class="flex-shrink-0 flex items-center">
                         <a href="/" class="hover:opacity-80 transition">
-                            <img src="{{ asset('images/logo.png') }}" alt="{{ config('app.name') }}" class="h-10 w-auto">
+                            <img src="{{ asset('images/logo.webp') }}" alt="{{ config('app.name') }}" class="h-10 w-auto">
                         </a>
                     </div>
 
@@ -49,6 +49,11 @@
                                 <a href="{{ route('category', $cat->slug) }}" class="text-gray-600 hover:text-blue-600 uppercase text-sm font-bold tracking-wide transition">{{ $cat->name }}</a>
                             @endforeach
                         </nav>
+
+                        <!-- Search Bar -->
+                        <div class="w-64 relative z-50">
+                            <livewire:search-bar />
+                        </div>
                         
                         <div class="border-l border-gray-200 h-6 mx-4"></div>
 
@@ -111,6 +116,11 @@
                     </div>
 
                     <div class="px-6 py-6 space-y-6 flex-1">
+                        <!-- Mobile Search -->
+                        <div class="mb-6">
+                            <livewire:search-bar />
+                        </div>
+
                         <nav class="flex flex-col space-y-4">
                             <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Categories</p>
                             @foreach(\App\Models\Category::all() as $cat)

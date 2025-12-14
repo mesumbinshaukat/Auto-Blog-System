@@ -12,7 +12,10 @@
     <div x-data="{ activeSlide: 0, slides: {{ $latest->count() }} }" class="relative mb-12 rounded-xl overflow-hidden shadow-2xl h-96">
         @foreach($latest as $index => $blog)
             <div x-show="activeSlide === {{ $index }}" class="absolute inset-0 transition-opacity duration-500 ease-in-out bg-gray-900">
-                <img src="{{ ($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path)) ? asset('storage/' . $blog->thumbnail_path) : "https://placehold.co/1200x600/1d4ed8/ffffff?text={$blog->category->name}" }}" class="w-full h-full object-cover opacity-50">
+                <img src="{{ ($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path)) ? asset('storage/' . $blog->thumbnail_path) : "https://placehold.co/1200x600/1d4ed8/ffffff?text={$blog->category->name}" }}" 
+                     class="w-full h-full object-cover opacity-50"
+                     loading="{{ $index === 0 ? 'eager' : 'lazy' }}"
+                     decoding="{{ $index === 0 ? 'sync' : 'async' }}">
                 <div class="absolute bottom-0 left-0 p-8 text-white w-full bg-gradient-to-t from-black to-transparent">
                     <span class="bg-blue-600 text-xs font-bold px-2 py-1 rounded uppercase">{{ $blog->category->name }}</span>
                     <h2 class="text-4xl font-bold mt-2 leading-tight">
@@ -131,34 +134,9 @@
         <!-- Blog Grid -->
         <div class="lg:col-span-2 space-y-8">
             <h3 class="text-2xl font-bold text-gray-800">Latest Stories</h3>
-            @forelse($feed as $blog)
-                <div class="bg-white rounded-lg shadow-sm hover:shadow-md transition overflow-hidden flex flex-col md:flex-row h-auto md:h-48">
-                    <div class="w-full md:w-1/3 bg-gray-200">
-                        <img src="{{ ($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path)) ? asset('storage/' . $blog->thumbnail_path) : "https://placehold.co/400x300/e2e8f0/1e293b?text={$blog->category->name}" }}" class="w-full h-full object-cover">
-                    </div>
-                    <div class="p-6 w-full md:w-2/3 flex flex-col justify-between">
-                        <div>
-                            <div class="flex items-center space-x-2 text-sm text-gray-500 mb-2">
-                                <span class="text-blue-600 font-bold uppercase">{{ $blog->category->name }}</span>
-                                <span>&bull;</span>
-                                <span>{{ $blog->published_at->format('M d, Y') }}</span>
-                            </div>
-                            <h2 class="text-xl font-bold text-gray-900 leading-tight">
-                                <a href="{{ route('blog.show', $blog->slug) }}" class="hover:text-blue-600 transition">{{ $blog->title }}</a>
-                            </h2>
-                            <p class="text-gray-600 mt-2 line-clamp-2 text-sm">{{ $blog->meta_description }}</p>
-                        </div>
-                    </div>
-                </div>
-            @empty
-                <div class="text-center py-12 text-gray-500">
-                    No blogs found. Check back later!
-                </div>
-            @endforelse
-
-            <div class="mt-8">
-                {{ $feed->links() }}
-            </div>
+            
+            <!-- Infinite Scroll Feed -->
+            <livewire:blog-feed :excludeIds="$latest->pluck('id')->toArray()" />
         </div>
 
         <!-- Sidebar -->

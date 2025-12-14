@@ -51,6 +51,8 @@ Route::controller(\App\Http\Controllers\SitemapController::class)->group(functio
     Route::get('/sitemap/blogs-{page?}.xml', 'blogs')->name('sitemap.blogs');
 });
 
+Route::get('/search', [App\Http\Controllers\SearchController::class, 'index'])->name('search.index');
+
 // Manual Trigger for "Poor Man's Cron" Scheduler
 Route::get('/trigger-scheduler', function () {
     // Force run daily scheduler logic 
