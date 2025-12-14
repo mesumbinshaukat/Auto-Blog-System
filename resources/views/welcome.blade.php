@@ -136,7 +136,10 @@
             <h3 class="text-2xl font-bold text-gray-800">Latest Stories</h3>
             
             <!-- Infinite Scroll Feed -->
-            <livewire:blog-feed :excludeIds="$latest->pluck('id')->toArray()" />
+            <livewire:blog-feed 
+                :excludeIds="isset($latest) ? $latest->pluck('id')->toArray() : []" 
+                :categoryId="isset($category) ? $category->id : null" 
+            />
         </div>
 
         <!-- Sidebar -->

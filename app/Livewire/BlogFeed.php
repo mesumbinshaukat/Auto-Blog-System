@@ -9,10 +9,12 @@ class BlogFeed extends Component
 {
     public $perPage = 6;
     public $excludeIds = [];
+    public $categoryId = null;
 
-    public function mount($excludeIds = [])
+    public function mount($excludeIds = [], $categoryId = null)
     {
-        $this->excludeIds = $excludeIds; // Exclude IDs already shown in Hero/Static sections
+        $this->excludeIds = $excludeIds;
+        $this->categoryId = $categoryId;
     }
 
     public function loadMore()
@@ -23,6 +25,9 @@ class BlogFeed extends Component
     public function render()
     {
         $feed = Blog::query()
+            ->when($this->categoryId, function($q) {
+                return $q->where('category_id', $this->categoryId);
+            })
             ->when(!empty($this->excludeIds), function($q) {
                 return $q->whereNotIn('id', $this->excludeIds);
             })
