@@ -63,7 +63,8 @@
                     
                     let interval = setInterval(async () => {
                         try {
-                            let res = await fetch(`/admin/blog/status/${this.jobId}`);
+                            const statusUrl = "{{ route('admin.blog.status', ':id') }}".replace(':id', this.jobId);
+                            let res = await fetch(statusUrl);
                             let status = await res.json();
                             
                             this.progress = status.progress;
