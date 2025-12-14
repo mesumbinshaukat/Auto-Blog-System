@@ -168,7 +168,7 @@
                     <!-- Brand -->
                     <div class="space-y-4">
                         <div class="flex items-center gap-2">
-                             <img src="{{ asset('images/logo.png') }}" alt="{{ config('app.name') }}" class="h-8 w-auto brightness-0 invert">
+                             <img src="{{ asset('images/logo.webp') }}" alt="{{ config('app.name') }}" class="h-8 w-auto brightness-0 invert">
                         </div>
                         <p class="text-gray-400 text-sm leading-relaxed">
                             Automated Tech Blogs generated daily. Stay ahead of the curve with the latest in AI, Technology, and Innovation.
