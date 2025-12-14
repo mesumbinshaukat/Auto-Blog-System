@@ -75,6 +75,9 @@ class AdminController extends Controller
         // Dispatch async job
         \App\Jobs\GenerateBlogJob::dispatch($request->category_id, $jobId);
 
+        // Trigger queue worker to process the job immediately
+        $this->triggerQueueWorker();
+
         return response()->json([
             'success' => true, 
             'job_id' => $jobId,
@@ -106,6 +109,9 @@ class AdminController extends Controller
             $jobs[] = $jobId;
         }
 
+        // Trigger queue worker to process all jobs
+        $this->triggerQueueWorker();
+
         return response()->json([
             'success' => true,
             'job_ids' => $jobs,
@@ -122,5 +128,43 @@ class AdminController extends Controller
         }
 
         return response()->json($status);
+    }
+
+    /**
+     * Trigger queue worker to process pending jobs
+     * Uses cache-based locking to prevent multiple simultaneous workers
+     */
+    protected function triggerQueueWorker()
+    {
+        // Check if a worker is already running using cache lock
+        $lockKey = 'queue_worker_running';
+        
+        if (\Illuminate\Support\Facades\Cache::has($lockKey)) {
+            Log::info('Queue worker already running, skipping trigger');
+            return;
+        }
+
+        // Set lock for 5 minutes (longer than typical job duration)
+        \Illuminate\Support\Facades\Cache::put($lockKey, true, 300);
+
+        try {
+            Log::info('Triggering queue worker in background');
+            
+            // Trigger queue worker in background
+            // This will process all pending jobs until queue is empty
+            if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                // Windows
+                pclose(popen('start /B php ' . base_path('artisan') . ' queue:work --stop-when-empty --tries=3 --timeout=300 > NUL 2>&1', 'r'));
+            } else {
+                // Linux/Unix
+                exec('php ' . base_path('artisan') . ' queue:work --stop-when-empty --tries=3 --timeout=300 > /dev/null 2>&1 &');
+            }
+            
+            Log::info('Queue worker triggered successfully');
+        } catch (\Exception $e) {
+            Log::error('Failed to trigger queue worker: ' . $e->getMessage());
+            // Release lock on error
+            \Illuminate\Support\Facades\Cache::forget($lockKey);
+        }
     }
 }
