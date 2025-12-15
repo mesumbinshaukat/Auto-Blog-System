@@ -87,7 +87,7 @@ class AIService
              return [Str::slug($topic, ' '), strtolower($category), 'guide', 'tips'];
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$this->geminiKey}";
         $prompt = "Suggest 1 primary focus keyword and 3 secondary long-tail keywords for a blog post about \"$topic\" in category \"$category\". Return ONLY the keywords as a comma-separated list.";
         
         try {
@@ -243,29 +243,83 @@ Rules:
 Content:
 " . substr($content, 0, 15000);
 
-        try {
-            $response = Http::withHeaders(['Content-Type' => 'application/json'])
-                ->timeout(30)
-                ->post("https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}", [
-                    'contents' => [['parts' => [['text' => $prompt]]]]
-                ]);
-            
-            if ($response->successful()) {
-                $data = $response->json();
-                 $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                 // Cleanup
-                $text = str_replace('```html', '', $text);
-                $text = str_replace('```', '', $text);
-                $resultContent = trim($text) ?: $content;
+        // Try Gemini first with retry
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            try {
+                $response = Http::withHeaders(['Content-Type' => 'application/json'])
+                    ->timeout(30)
+                    ->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$this->geminiKey}", [
+                        'contents' => [['parts' => [['text' => $prompt]]]]
+                    ]);
                 
-                return ['content' => $resultContent, 'error' => null];
-            } else {
-                 return ['content' => $content, 'error' => "API Error: " . $response->status() . " " . $response->body()];
+                if ($response->successful()) {
+                    $data = $response->json();
+                     $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                     // Cleanup
+                    $text = str_replace('```html', '', $text);
+                    $text = str_replace('```', '', $text);
+                    $resultContent = trim($text) ?: $content;
+                    
+                    Log::info("Link injection successful via Gemini (attempt $attempt)");
+                    return ['content' => $resultContent, 'error' => null];
+                }
+                
+                Log::warning("Gemini link injection attempt $attempt failed: " . $response->status());
+                
+                if ($attempt < 2) {
+                    sleep(2); // Wait before retry
+                }
+            } catch (\Exception $e) {
+                Log::warning("Gemini link injection attempt $attempt exception: " . $e->getMessage());
+                if ($attempt < 2) {
+                    sleep(2);
+                }
+            }
+        }
+        
+        // Fallback to HuggingFace
+        Log::info("Falling back to HuggingFace for link injection");
+        try {
+            $hfPrompt = "Analyze this blog content and suggest 2-3 external links to authoritative sources (Wikipedia, major news sites, .edu/.gov). For each link, provide: 1) The exact phrase to link, 2) The full URL. Format as: PHRASE|URL (one per line).\n\nContent:\n" . substr($content, 0, 10000);
+            
+            $result = $this->callHuggingFaceChatCompletion(
+                $this->models[0], 
+                "You are an SEO expert. Suggest authoritative external links for blog content.",
+                $hfPrompt,
+                1
+            );
+            
+            if ($result) {
+                // Parse HF response and inject links
+                $lines = explode("\n", $result);
+                $modifiedContent = $content;
+                $linksAdded = 0;
+                
+                foreach ($lines as $line) {
+                    if (strpos($line, '|') !== false && $linksAdded < 3) {
+                        list($phrase, $url) = array_map('trim', explode('|', $line, 2));
+                        
+                        // Basic validation
+                        if (filter_var($url, FILTER_VALIDATE_URL) && !empty($phrase)) {
+                            // Replace first occurrence of phrase with link
+                            $link = "<a href=\"$url\" rel=\"dofollow\" target=\"_blank\">$phrase</a>";
+                            $modifiedContent = preg_replace('/' . preg_quote($phrase, '/') . '/', $link, $modifiedContent, 1);
+                            $linksAdded++;
+                        }
+                    }
+                }
+                
+                if ($linksAdded > 0) {
+                    Log::info("Link injection successful via HuggingFace ($linksAdded links)");
+                    return ['content' => $modifiedContent, 'error' => null];
+                }
             }
         } catch (\Exception $e) {
-            Log::error("Link injection failed: " . $e->getMessage());
-            return ['content' => $content, 'error' => "Exception: " . $e->getMessage()];
+            Log::error("HuggingFace fallback failed: " . $e->getMessage());
         }
+        
+        // Both failed, return original content with error
+        return ['content' => $content, 'error' => "Both Gemini and HuggingFace failed"];
     }
 
     protected function expandContent(string $content, string $topic, string $systemPrompt): string
@@ -297,7 +351,7 @@ Content:
             return $this->validateAndFixHtml($content);
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$this->geminiKey}";
         
         $prompt = "Optimize and humanize this blog content for superior AISEO and User Experience.
 Requirements:
