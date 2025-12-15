@@ -10,6 +10,7 @@ class AIService
 {
     protected $hfToken;
     protected $geminiKey;
+    protected $geminiKeyFallback;
     
     // Priority list of models to try
     protected $models = [
@@ -23,6 +24,7 @@ class AIService
     {
         $this->hfToken = env('HUGGINGFACE_API_KEY');
         $this->geminiKey = env('GEMINI_API_KEY');
+        $this->geminiKeyFallback = env('GEMINI_API_KEY_FALLBACK');
     }
 
     public function generateRawContent(string $topic, string $category, string $researchData = ''): string
@@ -78,27 +80,83 @@ class AIService
         return $result;
     }
 
+    /**
+     * Call Gemini API with automatic fallback to secondary key and HuggingFace
+     * 
+     * @param string $prompt The user prompt
+     * @param string $model The Gemini model to use (default: gemini-2.0-flash-exp)
+     * @param int $maxRetries Max retries per key (default: 2)
+     * @return array ['success' => bool, 'data' => mixed, 'source' => string]
+     */
+    protected function callGeminiWithFallback(string $prompt, string $model = 'gemini-2.0-flash-exp', int $maxRetries = 2): array
+    {
+        $keys = array_filter([$this->geminiKey, $this->geminiKeyFallback]);
+        
+        foreach ($keys as $keyIndex => $apiKey) {
+            $keyLabel = $keyIndex === 0 ? 'primary' : 'fallback';
+            
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                    
+                    $response = Http::withHeaders(['Content-Type' => 'application/json'])
+                        ->timeout(30)
+                        ->post($url, [
+                            'contents' => [['parts' => [['text' => $prompt]]]]
+                        ]);
+                    
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                        
+                        if (!empty($text)) {
+                            Log::info("Gemini API success ({$keyLabel} key, attempt {$attempt})");
+                            return ['success' => true, 'data' => $text, 'source' => "gemini_{$keyLabel}"];
+                        }
+                    }
+                    
+                    $status = $response->status();
+                    Log::warning("Gemini {$keyLabel} key attempt {$attempt} failed: HTTP {$status}");
+                    
+                    // Don't retry on 404 (model not found) or 400 (bad request)
+                    if (in_array($status, [400, 404])) {
+                        break;
+                    }
+                    
+                    if ($attempt < $maxRetries) {
+                        sleep(2); // Wait before retry
+                    }
+                    
+                } catch (\Exception $e) {
+                    Log::warning("Gemini {$keyLabel} key attempt {$attempt} exception: " . $e->getMessage());
+                    if ($attempt < $maxRetries) {
+                        sleep(2);
+                    }
+                }
+            }
+        }
+        
+        // All Gemini keys failed
+        Log::info("All Gemini keys exhausted, returning failure");
+        return ['success' => false, 'data' => null, 'source' => 'none'];
+    }
+
     protected function generateKeywords(string $topic, string $category): array
     {
         // Use Gemini (preferred) or basic generation for keywords
         // Simple heuristic fallback if no AI: just split topic and add category
         
-        if (empty($this->geminiKey)) {
+        if (empty($this->geminiKey) && empty($this->geminiKeyFallback)) {
              return [Str::slug($topic, ' '), strtolower($category), 'guide', 'tips'];
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$this->geminiKey}";
         $prompt = "Suggest 1 primary focus keyword and 3 secondary long-tail keywords for a blog post about \"$topic\" in category \"$category\". Return ONLY the keywords as a comma-separated list.";
         
-        try {
-             $response = Http::withOptions(['verify' => false])->post($url, ['contents' => [['parts' => [['text' => $prompt]]]]]);
-             if ($response->successful()) {
-                 $text = $response->json()['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                 $keywords = array_map('trim', explode(',', $text));
-                 return array_slice($keywords, 0, 4);
-             }
-        } catch (\Exception $e) {
-            Log::warning("Keyword gen failed: " . $e->getMessage());
+        $result = $this->callGeminiWithFallback($prompt);
+        
+        if ($result['success']) {
+            $keywords = array_map('trim', explode(',', $result['data']));
+            return array_slice($keywords, 0, 4);
         }
 
         return [Str::title($topic)];
@@ -243,38 +301,17 @@ Rules:
 Content:
 " . substr($content, 0, 15000);
 
-        // Try Gemini first with retry
-        for ($attempt = 1; $attempt <= 2; $attempt++) {
-            try {
-                $response = Http::withHeaders(['Content-Type' => 'application/json'])
-                    ->timeout(30)
-                    ->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$this->geminiKey}", [
-                        'contents' => [['parts' => [['text' => $prompt]]]]
-                    ]);
-                
-                if ($response->successful()) {
-                    $data = $response->json();
-                     $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                     // Cleanup
-                    $text = str_replace('```html', '', $text);
-                    $text = str_replace('```', '', $text);
-                    $resultContent = trim($text) ?: $content;
-                    
-                    Log::info("Link injection successful via Gemini (attempt $attempt)");
-                    return ['content' => $resultContent, 'error' => null];
-                }
-                
-                Log::warning("Gemini link injection attempt $attempt failed: " . $response->status());
-                
-                if ($attempt < 2) {
-                    sleep(2); // Wait before retry
-                }
-            } catch (\Exception $e) {
-                Log::warning("Gemini link injection attempt $attempt exception: " . $e->getMessage());
-                if ($attempt < 2) {
-                    sleep(2);
-                }
-            }
+        // Try Gemini with fallback
+        $result = $this->callGeminiWithFallback($prompt);
+        
+        if ($result['success']) {
+            // Cleanup
+            $text = str_replace('```html', '', $result['data']);
+            $text = str_replace('```', '', $text);
+            $resultContent = trim($text) ?: $content;
+            
+            Log::info("Link injection successful via {$result['source']}");
+            return ['content' => $resultContent, 'error' => null];
         }
         
         // Fallback to HuggingFace
@@ -282,16 +319,16 @@ Content:
         try {
             $hfPrompt = "Analyze this blog content and suggest 2-3 external links to authoritative sources (Wikipedia, major news sites, .edu/.gov). For each link, provide: 1) The exact phrase to link, 2) The full URL. Format as: PHRASE|URL (one per line).\n\nContent:\n" . substr($content, 0, 10000);
             
-            $result = $this->callHuggingFaceChatCompletion(
+            $hfResult = $this->callHuggingFaceChatCompletion(
                 $this->models[0], 
                 "You are an SEO expert. Suggest authoritative external links for blog content.",
                 $hfPrompt,
                 1
             );
             
-            if ($result) {
+            if ($hfResult) {
                 // Parse HF response and inject links
-                $lines = explode("\n", $result);
+                $lines = explode("\n", $hfResult);
                 $modifiedContent = $content;
                 $linksAdded = 0;
                 
@@ -346,13 +383,11 @@ Content:
     {
         // Return array: ['content' => string, 'toc' => array]
         
-        if (empty($this->geminiKey)) {
+        if (empty($this->geminiKey) && empty($this->geminiKeyFallback)) {
             Log::warning("GEMINI_API_KEY not configured. Skipping optimization.");
             return $this->validateAndFixHtml($content);
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$this->geminiKey}";
-        
         $prompt = "Optimize and humanize this blog content for superior AISEO and User Experience.
 Requirements:
 1. **Split long paragraphs**: If a paragraph has >3 sentences, split it. 
@@ -369,33 +404,18 @@ Requirements:
 Content:
 " . substr($content, 0, 15000);
 
-        try {
-            Log::info("Calling Gemini API for optimization...");
+        Log::info("Calling Gemini API for optimization...");
+        
+        $result = $this->callGeminiWithFallback($prompt);
+        
+        if ($result['success']) {
+            $cleaned = $this->cleanContent($result['data']);
             
-            $response = Http::withOptions(['verify' => false])
-                ->timeout(90)
-                ->post($url, [
-                    'contents' => [
-                        ['parts' => [['text' => $prompt]]]
-                    ]
-                ]);
-
-            if ($response->successful()) {
-                $data = $response->json();
-                $optimized = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
-                
-                if ($optimized) {
-                    $cleaned = $this->cleanContent($optimized);
-                    
-                    // Regex Fallback: Force remove any remaining em dashes
-                    $cleaned = preg_replace('/—/', ' - ', $cleaned);
-                    $cleaned = preg_replace('/–/', '-', $cleaned); // En dash to hyphen
-                    
-                    return $this->validateAndFixHtml($cleaned);
-                }
-            }
-        } catch (\Exception $e) {
-            Log::error("Gemini Optimization failed: " . $e->getMessage());
+            // Regex Fallback: Force remove any remaining em dashes
+            $cleaned = preg_replace('/—/', ' - ', $cleaned);
+            $cleaned = preg_replace('/–/', '-', $cleaned); // En dash to hyphen
+            
+            return $this->validateAndFixHtml($cleaned);
         }
 
         return $this->validateAndFixHtml($content);
