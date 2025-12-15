@@ -47,6 +47,8 @@ class AdvancedSeoTest extends TestCase
         // Assert stats
         $this->assertEquals(1, $result['external_count']);
         $this->assertGreaterThan(0, $result['internal_count']);
+        $this->assertArrayHasKey('logs', $result);
+        $this->assertNotEmpty($result['logs']);
         
         // Check external validation
         $this->assertStringContainsString('href="https://example.com"', $output);

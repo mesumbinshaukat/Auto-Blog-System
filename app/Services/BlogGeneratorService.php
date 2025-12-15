@@ -140,6 +140,7 @@ class BlogGeneratorService
         $cleanedData = $this->validateAndCleanLinks($content);
         $content = $cleanedData['html'];
         $externalCount = $cleanedData['count'];
+        $linkLogs = $cleanedData['logs'] ?? [];
         
         // 2. Insert Internal Links if room
         $externalLinkCount = substr_count($content, 'href="http');
@@ -163,7 +164,8 @@ class BlogGeneratorService
         return [
             'html' => $content,
             'external_count' => $externalCount,
-            'internal_count' => $internalCount
+            'internal_count' => $internalCount,
+            'logs' => $linkLogs
         ];
     }
 
@@ -238,6 +240,7 @@ class BlogGeneratorService
         $links = $xpath->query('//a');
         $validLinksCount = 0;
         $maxExternal = 4;
+        $logs = [];
         
         foreach ($links as $link) {
             $href = $link->getAttribute('href');
@@ -248,7 +251,9 @@ class BlogGeneratorService
             }
             
             // Validate URL (Headless check)
-            if ($this->isValidUrl($href)) {
+            $validation = $this->isValidUrl($href, true); // Pass true for detailed result
+            
+            if ($validation['valid']) {
                 $validLinksCount++;
                 // Ensure dofollow
                 $link->setAttribute('rel', 'dofollow');
@@ -256,14 +261,19 @@ class BlogGeneratorService
                 
                 // Cap external links
                 if ($validLinksCount > $maxExternal) {
+                    $logs[] = "Removed (Limit): $href";
                     // Convert to plain text if over limit
                     $text = $dom->createTextNode($link->textContent);
                     $link->parentNode->replaceChild($text, $link);
                     $validLinksCount--; // Adjust count as we removed it
+                } else {
+                    $logs[] = "Valid: $href";
                 }
             } else {
                 // Remove invalid link, keep text
-                Log::warning("Removing invalid link: $href");
+                $reason = $validation['reason'] ?? 'Unknown';
+                $logs[] = "Removed ($reason): $href";
+                Log::warning("Removing invalid link: $href. Reason: $reason");
                 $text = $dom->createTextNode($link->textContent);
                 $link->parentNode->replaceChild($text, $link);
             }
@@ -272,14 +282,17 @@ class BlogGeneratorService
         $fixed = $dom->saveHTML();
         return [
             'html' => str_replace('<?xml encoding="utf-8" ?>', '', $fixed),
-            'count' => $validLinksCount
+            'count' => $validLinksCount,
+            'logs' => $logs
         ];
     }
     
-    protected function isValidUrl(string $url): bool
+    protected function isValidUrl(string $url, bool $returnDetails = false)
     {
         // Simple filter var check first
-        if (!filter_var($url, FILTER_VALIDATE_URL)) return false;
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+             return $returnDetails ? ['valid' => false, 'reason' => 'Invalid Format'] : false;
+        }
         
         // Perform a quick HEAD request
         try {
@@ -287,19 +300,21 @@ class BlogGeneratorService
             $context = stream_context_create([
                 'http' => [
                     'method' => 'HEAD', 
-                    'timeout' => 3, 
+                    'timeout' => 5, // Increased timeout to 5s
                     'ignore_errors' => true,
                     'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 ]
             ]);
+            
+            // Suppress errors but catch them via error_get_last if needed, or just exception check
             $headers = @get_headers($url, 0, $context);
             
             if (!$headers || empty($headers)) {
-                 // Fallback to GET if HEAD fails (some servers block HEAD)
+                 // Fallback to GET
                  $context = stream_context_create([
                     'http' => [
                         'method' => 'GET', 
-                        'timeout' => 3, 
+                        'timeout' => 5, 
                         'ignore_errors' => true,
                         'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                     ]
@@ -307,17 +322,34 @@ class BlogGeneratorService
                 $headers = @get_headers($url, 0, $context);
             }
 
-            if ($headers && strpos($headers[0], '200') !== false) {
-                return true;
+            if (!$headers || empty($headers)) {
+                 return $returnDetails ? ['valid' => false, 'reason' => 'No Headers/Connection Failed'] : false;
             }
-             // Allow 301/302 redirects too
-            if ($headers && (strpos($headers[0], '301') !== false || strpos($headers[0], '302') !== false)) {
-                 return true;
+
+            // Check status code
+            // $headers[0] e.g. "HTTP/1.1 200 OK"
+            $statusLine = $headers[0];
+            preg_match('/HTTP\/\S+\s(\d{3})/', $statusLine, $matches);
+            $code = isset($matches[1]) ? (int)$matches[1] : 0;
+            
+            if ($code >= 200 && $code < 400) {
+                return $returnDetails ? ['valid' => true] : true;
             }
+            
+            if ($code === 403 || $code === 429) {
+                 // Some sites block programmatic access 100%. 
+                 // If it's 403, it MIGHT be valid but we are blocked. 
+                 // Users prefer functional links. If we can't check it, is it risky to keep it?
+                 // Let's assume strict: if we can't verify, we remove.
+                 return $returnDetails ? ['valid' => false, 'reason' => "Status $code"] : false;
+            }
+             
+             return $returnDetails ? ['valid' => false, 'reason' => "Status $code"] : false;
+
         } catch (\Exception $e) {
-            return false;
+            return $returnDetails ? ['valid' => false, 'reason' => 'Exception: ' . $e->getMessage()] : false;
         }
         
-        return false;
+        return $returnDetails ? ['valid' => false, 'reason' => 'Unknown Failure'] : false;
     }
 }

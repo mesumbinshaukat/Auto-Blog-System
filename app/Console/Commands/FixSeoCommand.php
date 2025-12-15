@@ -82,16 +82,26 @@ class FixSeoCommand extends Command
             $newContent = $result['html'];
             $extCount = $result['external_count'];
             $intCount = $result['internal_count'];
+            $logs = $result['logs'] ?? [];
             
-            if ($newContent !== $blog->content) {
+            if ($newContent !== $blog->content || !empty($logs)) {
                 $blog->content = $newContent;
                 $updated = true;
                 
                 $this->line("   <info>✔</info> {$blog->title}");
                 $this->line("     External Validated: $extCount | Internal Added: $intCount");
+                
+                if (!empty($logs)) {
+                    foreach ($logs as $log) {
+                         if (str_contains($log, 'Removed')) {
+                             $this->line("     <error> x $log</error>");
+                         } else {
+                             $this->line("     <comment> - $log</comment>");
+                         }
+                    }
+                }
             } else {
-                $this->line("   <comment>-</comment> {$blog->title} (No changes/Skipped)");
-                 // e.g. already valid
+                $this->line("   <comment>-</comment> {$blog->title} (No changes)");
             }
 
             if ($updated) {
