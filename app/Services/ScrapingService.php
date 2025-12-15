@@ -22,8 +22,9 @@ class ScrapingService
             'https://www.cnbc.com/id/10001147/device/rss/rss.html'
         ],
         'ai' => [
-            'https://www.wired.com/tag/artificial-intelligence/feed/rss',
-            'https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml'
+            'https://www.wired.com/feed/tag/ai/latest/rss',
+            'https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml',
+            'https://feeds.arstechnica.com/arstechnica/technology-lab'
         ],
         'politics' => [
             'https://rss.politico.com/congress.xml',
@@ -65,27 +66,59 @@ class ScrapingService
             try {
                 Log::info("Fetching RSS from: $url");
                 $response = $this->client->get($url);
+                
+                // Check for 404 specifically
+                if ($response->getStatusCode() === 404) {
+                    Log::warning("RSS $url returned 404, skipping");
+                    continue;
+                }
+                
                 $xmlContent = $response->getBody()->getContents();
+                
+                // Check for empty response
+                if (empty(trim($xmlContent))) {
+                    Log::warning("RSS $url returned empty content, skipping");
+                    continue;
+                }
                 
                 // Parse RSS
                 $rss = simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NOCDATA);
                 
-                if ($rss === false) continue;
+                if ($rss === false) {
+                    Log::warning("RSS $url failed to parse XML, skipping");
+                    continue;
+                }
 
                 $items = $rss->channel->item ?? $rss->entry ?? []; // Handle RSS 2.0 and Atom
                 
+                // Check for empty feed
+                if (empty($items)) {
+                    Log::warning("RSS $url returned empty feed, skipping");
+                    continue;
+                }
+                
+                $itemCount = 0;
                 foreach ($items as $item) {
                     $title = (string)$item->title;
                     $pubDate = strtotime((string)($item->pubDate ?? $item->updated ?? 'now'));
                     
-                    // Filter: Only recent (last 48 hours)
-                    if (time() - $pubDate < 172800) { 
+                    // Filter: Only recent (last 7 days)
+                    if (time() - $pubDate < 604800) { 
                         $topics[] = trim($title);
+                        $itemCount++;
                     }
 
                     if (count($topics) >= 5) break; // Limit per source
                 }
+                
+                Log::info("RSS $url returned $itemCount recent topics");
 
+            } catch (\GuzzleHttp\Exception\ClientException $e) {
+                if ($e->getResponse()->getStatusCode() === 404) {
+                    Log::warning("RSS $url returned 404, skipping");
+                } else {
+                    Log::warning("RSS Fetch failed for $url: " . $e->getMessage());
+                }
             } catch (\Exception $e) {
                 Log::warning("RSS Fetch failed for $url: " . $e->getMessage());
             }
@@ -96,10 +129,17 @@ class ScrapingService
         // De-duplicate
         $topics = array_unique($topics);
 
-        // Fallback to Google Trends / Static if empty
+        // Fallback to static topics if empty
         if (empty($topics)) {
-            Log::info("RSS returned no topics for $category, using fallback.");
+            Log::warning("All RSS sources failed or returned no topics for $category, using fallback topics");
             return $this->fetchFallbackTopics($category);
+        }
+        
+        // Ensure minimum topic count
+        if (count($topics) < 5) {
+            Log::info("Only " . count($topics) . " topics found for $category, supplementing with fallbacks");
+            $fallbacks = $this->fetchFallbackTopics($category);
+            $topics = array_merge($topics, array_slice($fallbacks, 0, 5 - count($topics)));
         }
 
         return $topics;
@@ -199,13 +239,67 @@ class ScrapingService
     protected function fetchFallbackTopics(string $category): array
     {
         $fallbacks = [
-            'technology' => ['Future of AI in 2025', 'Best Programming Languages', 'Web Assembly Guide'],
-            'business' => ['Remote Work Trends', 'Startup Funding Guide', 'Leadership Skills'],
-            'ai' => ['Generative AI Explanation', 'LLM Fine-tuning', 'Ethical AI'],
-            'games' => ['Top RPGs of the Year', 'Indie Game Development', 'Esports Growth'],
-            'politics' => ['Global Climate Policies', 'Digital Privacy Laws'],
-            'sports' => ['Training for Marathon', 'Nutrition for Athletes']
+            'technology' => [
+                'Future of AI in 2025', 
+                'Best Programming Languages for Developers', 
+                'Web Assembly Complete Guide',
+                'Quantum Computing Breakthroughs',
+                'Cybersecurity Best Practices'
+            ],
+            'business' => [
+                'Remote Work Trends and Strategies', 
+                'Startup Funding Guide', 
+                'Leadership Skills for Modern Managers',
+                'Digital Transformation in Business',
+                'Sustainable Business Practices'
+            ],
+            'ai' => [
+                'Generative AI Explained', 
+                'LLM Fine-tuning Techniques', 
+                'Ethical AI Development',
+                'AI in Healthcare Applications',
+                'Machine Learning Best Practices'
+            ],
+            'games' => [
+                'Top RPGs of the Year', 
+                'Indie Game Development Guide', 
+                'Esports Industry Growth',
+                'Game Design Principles',
+                'Virtual Reality Gaming Trends'
+            ],
+            'politics' => [
+                'Global Climate Policies', 
+                'Digital Privacy Laws',
+                'International Relations Updates',
+                'Democratic Governance Trends',
+                'Policy Making in Digital Age'
+            ],
+            'science' => [
+                'Latest Space Exploration Discoveries',
+                'Climate Change Research Updates',
+                'Breakthrough Medical Research',
+                'Physics and Quantum Mechanics',
+                'Environmental Conservation Efforts'
+            ],
+            'health' => [
+                'Mental Health Awareness',
+                'Nutrition and Wellness Tips',
+                'Exercise and Fitness Trends',
+                'Medical Technology Advances',
+                'Preventive Healthcare Strategies'
+            ],
+            'sports' => [
+                'Training for Marathon Success', 
+                'Nutrition for Athletes',
+                'Sports Psychology Techniques',
+                'Injury Prevention Strategies',
+                'Professional Sports Analysis'
+            ]
         ];
-        return $fallbacks[strtolower($category)] ?? ['General Trends'];
+        return $fallbacks[strtolower($category)] ?? [
+            'Current Industry Trends',
+            'Expert Analysis and Insights',
+            'Future Predictions and Forecasts'
+        ];
     }
 }
