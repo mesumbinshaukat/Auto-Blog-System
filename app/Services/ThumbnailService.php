@@ -102,8 +102,219 @@ class ThumbnailService
         Log::warning("All AI generation attempts failed, using SVG fallback");
         return $this->generateFallbackThumbnail($slug, $category, $blogId);
     }
-    
-    // ... [Existing code lines 104-317 omitted for brevity] ...
+    /**
+     * Generate thumbnail using Hugging Face FLUX.1-schnell as fallback
+     */
+    protected function generateWithHuggingFace(string $slug, string $title, string $content, string $category, ?int $blogId = null): ?string
+    {
+        if (empty($this->hfToken)) {
+            Log::warning("HUGGINGFACE_API_KEY not configured for thumbnail generation.");
+            return null;
+        }
+
+        $maxAttempts = 3;
+        $attempt = 0;
+        
+        while ($attempt < $maxAttempts) {
+            try {
+                // Extract topic elements for prompt enhancement
+                $topicElements = $this->extractTopicElements($content);
+                $elementsText = !empty($topicElements) ? implode(', ', $topicElements) : 'abstract tech design';
+                
+                // Build enhanced prompt for FLUX.1-schnell
+                $prompt = $this->buildHuggingFacePrompt($title, $category, $elementsText, $blogId);
+                
+                Log::info("Calling Hugging Face FLUX.1-schnell API (attempt " . ($attempt + 1) . ")");
+                
+                // Call Hugging Face Inference API (updated endpoint as of Dec 2024)
+                $response = Http::withOptions(['verify' => false])
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $this->hfToken,
+                    ])->timeout(60)->post('https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell', [
+                        'inputs' => $prompt,
+                    ]);
+
+                if ($response->successful()) {
+                    // Response is binary image data
+                    $imageData = $response->body();
+                    
+                    if (empty($imageData)) {
+                        Log::error("Hugging Face returned empty image data");
+                        $attempt++;
+                        sleep(2); // Wait before retry
+                        continue;
+                    }
+                    
+                    // Convert to WebP and resize
+                    $thumbnailPath = $this->processHuggingFaceImage($imageData, $slug, $blogId);
+                    
+                    if ($thumbnailPath) {
+                        Log::info("Hugging Face thumbnail generated successfully: $thumbnailPath");
+                        return $thumbnailPath;
+                    }
+                } else {
+                    $status = $response->status();
+                    $body = $response->body();
+                    
+                    Log::error("Hugging Face API request failed. Status: $status, Body: " . substr($body, 0, 500));
+                    
+                    // Check if it's a rate limit or model loading error
+                    if ($status === 503) {
+                        Log::info("Model is loading, waiting 20 seconds before retry...");
+                        sleep(20);
+                    } elseif ($status === 429) {
+                        Log::warning("Hugging Face rate limit exceeded");
+                        return null; // Don't retry on rate limit
+                    } else {
+                        sleep(2); // Wait before retry for other errors
+                    }
+                }
+                
+                $attempt++;
+                
+            } catch (\Exception $e) {
+                Log::error("Hugging Face generation attempt " . ($attempt + 1) . " exception: " . $e->getMessage());
+                $attempt++;
+                sleep(2);
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Build enhanced prompt for Hugging Face FLUX.1-schnell
+     */
+    protected function buildHuggingFacePrompt(string $title, string $category, string $elementsText, ?int $blogId): string
+    {
+        $prompt = "Professional blog thumbnail image, high quality, 4K resolution, 16:9 aspect ratio, ";
+        $prompt .= "centered composition, modern design, ";
+        $prompt .= "Topic: $title, ";
+        $prompt .= "Category: $category, ";
+        $prompt .= "Visual elements: $elementsText, ";
+        $prompt .= "Style: clean, vibrant colors, professional lighting, ";
+        $prompt .= "NO TEXT except subtle 'Blog ID: $blogId' in bottom-right corner at 20% opacity, ";
+        $prompt .= "abstract and visually appealing, suitable for tech blog header";
+        
+        return $prompt;
+    }
+
+    /**
+     * Process Hugging Face image: convert to WebP, resize, and save
+     */
+    protected function processHuggingFaceImage(string $imageData, string $slug, ?int $blogId): ?string
+    {
+        try {
+            // Create image from binary data
+            $image = $this->imageManager->read($imageData);
+            
+            // Resize to 1200x630 (maintaining aspect ratio, then crop)
+            $image->cover(1200, 630);
+            
+            // Add Blog ID overlay if provided
+            if ($blogId) {
+                // Simple text overlay (Intervention Image v3 syntax)
+                // Note: This requires GD with freetype support
+                // If text fails, image will still save without it
+                try {
+                    $image->text("Blog ID: $blogId", 1150, 600, function($font) {
+                        $font->file(public_path('fonts/arial.ttf')); // Fallback to default if not exists
+                        $font->size(20);
+                        $font->color('ffffff');
+                        $font->align('right');
+                        $font->valign('bottom');
+                    });
+                } catch (\Exception $e) {
+                    Log::warning("Could not add text overlay to HF image: " . $e->getMessage());
+                }
+            }
+            
+            // Ensure directory exists
+            $directory = storage_path('app/public/thumbnails');
+            if (!file_exists($directory)) {
+                mkdir($directory, 0755, true);
+            }
+            
+            // Save as WebP with 80% quality
+            $filename = "{$slug}.webp";
+            $path = "thumbnails/{$filename}";
+            $fullPath = storage_path("app/public/{$path}");
+            
+            $image->toWebp(80)->save($fullPath);
+            
+            // Check file size
+            $size = filesize($fullPath);
+            Log::info("Hugging Face thumbnail saved: $filename ($size bytes)");
+            
+            if ($size > 500 * 1024) { // If > 500KB, reduce quality
+                Log::warning("Thumbnail too large ($size bytes), re-saving with lower quality");
+                $image->toWebp(60)->save($fullPath);
+            }
+            
+            return $path;
+            
+        } catch (\Exception $e) {
+            Log::error("Failed to process Hugging Face image: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extract topic-specific elements from content for better visual generation
+     */
+    protected function extractTopicElements(string $content): array
+    {
+        $elements = [];
+        $content = strtolower($content);
+        
+        // Technology & Devices
+        if (preg_match('/\b(iphone|apple|ios|mac)\b/i', $content)) {
+            $elements[] = 'apple device with rounded corners and sleek design';
+        }
+        if (preg_match('/\b(android|google|pixel)\b/i', $content)) {
+            $elements[] = 'modern smartphone with angular design';
+        }
+        if (preg_match('/\b(train|railway|timetable|schedule|locomotive)\b/i', $content)) {
+            $elements[] = 'train silhouette with clock and track elements';
+        }
+        if (preg_match('/\b(car|vehicle|automotive|tesla)\b/i', $content)) {
+            $elements[] = 'sleek car silhouette with motion lines';
+        }
+        
+        // AI & Ethics
+        if (preg_match('/\b(ai|artificial intelligence|machine learning|neural)\b/i', $content)) {
+            $elements[] = 'neural network nodes and connections';
+        }
+        if (preg_match('/\b(ethic|moral|responsible|bias)\b/i', $content)) {
+            $elements[] = 'balanced scales with circuit patterns';
+        }
+        
+        // Business & Finance
+        if (preg_match('/\b(stock|market|trading|investment)\b/i', $content)) {
+            $elements[] = 'upward trending graph with candlesticks';
+        }
+        if (preg_match('/\b(startup|entrepreneur|venture)\b/i', $content)) {
+            $elements[] = 'rocket launch with growth trajectory';
+        }
+        
+        // Gaming
+        if (preg_match('/\b(game|gaming|console|xbox|playstation)\b/i', $content)) {
+            $elements[] = 'game controller with dynamic action lines';
+        }
+        if (preg_match('/\b(esports|competitive|tournament)\b/i', $content)) {
+            $elements[] = 'trophy with digital effects';
+        }
+        
+        // Politics & Social
+        if (preg_match('/\b(election|vote|democracy|campaign)\b/i', $content)) {
+            $elements[] = 'ballot box with civic symbols';
+        }
+        if (preg_match('/\b(climate|environment|sustainability)\b/i', $content)) {
+            $elements[] = 'earth with renewable energy symbols';
+        }
+        
+        return array_unique($elements);
+    }
 
     /**
      * Enhanced content analysis with Gemini
