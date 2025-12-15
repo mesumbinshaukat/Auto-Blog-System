@@ -14,7 +14,9 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
     - **Smart Redundancy**: Gemini 2.0 Flash (SVG analysis) → Hugging Face FLUX.1 (WebP generation) → Category Fallback.
     - Uniqueness validation (80% similarity threshold) to prevent generic images.
   - Generates structured content with H1-H6 headings, paragraphs, and tables.
+  - Generates structured content with H1-H6 headings, paragraphs, and tables.
   - Auto-extracts tags and meta descriptions.
+  - **Smart Title Sanitizer**: Automatically detects and fixes malformed HTML entities (e.g., `&rsquo;` → `’`) in titles and identifying duplicate topics.
 
 - **Smart Scheduling**:
   - Publishes 5 blogs daily on a randomized schedule.
@@ -166,6 +168,14 @@ To mass-generate 3 high-quality blogs for testing:
 php artisan db:seed --class=EnhancedContentSeeder
 ```
 
+### Title Sanitization
+The system includes a service to clean malformed HTML entities from blog titles (e.g. `User&rsquo;s` -> `User’s`).
+```bash
+# Scan and fix all malformed titles
+php artisan blog:fix-titles
+```
+*Note: This runs daily via the scheduler.*
+
 ## 🧪 Testing
 
 The project includes a comprehensive test suite (21+ tests).
@@ -185,7 +195,9 @@ php artisan test
 - `app/Services/`: 
   - `ThumbnailService.php`: Core logic for content analysis, entity extraction, and multi-tier image generation.
   - `AIService.php`: Handles Gemini/HF interactions for text.
+  - `AIService.php`: Handles Gemini/HF interactions for text.
   - `ScrapingService.php`: Trends and content scraping.
+  - `TitleSanitizerService.php`: Cleaning and fixing entity-encoded titles.
 - `app/Http/Controllers/`:
   - `SitemapController.php`: Handles dynamic sitemap generation.
   - `AdminController.php`: Analytics aggregator and backend management.

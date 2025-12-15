@@ -12,12 +12,19 @@ class BlogGeneratorService
     protected $scraper;
     protected $ai;
     protected $thumbnailService;
+    protected $titleSanitizer;
 
-    public function __construct(ScrapingService $scraper, AIService $ai, \App\Services\ThumbnailService $thumbnailService)
+    public function __construct(
+        ScrapingService $scraper, 
+        AIService $ai, 
+        \App\Services\ThumbnailService $thumbnailService,
+        TitleSanitizerService $titleSanitizer
+    )
     {
         $this->scraper = $scraper;
         $this->ai = $ai;
         $this->thumbnailService = $thumbnailService;
+        $this->titleSanitizer = $titleSanitizer;
     }
 
     public function generateBlogForCategory(Category $category, ?callable $onProgress = null)
@@ -58,6 +65,9 @@ class BlogGeneratorService
         if (preg_match('/<h1[^>]*>(.*?)<\/h1>/', $finalContent, $matches)) {
             $title = strip_tags($matches[1]);
         }
+        
+        // Sanitize title to remove entities
+        $title = $this->titleSanitizer->sanitizeTitle($title);
 
         // 7. Generate slug
         $slug = Str::slug($title . '-' . now()->timestamp);
@@ -89,6 +99,9 @@ class BlogGeneratorService
 
         // 10. Update blog with actual thumbnail
         $blog->update(['thumbnail_path' => $thumbnailPath]);
+        
+        // Double-check and fix any issues (e.g. if title logic changed post-creation)
+        $this->titleSanitizer->fixBlog($blog);
         
         $onProgress && $onProgress('Done!', 100);
         

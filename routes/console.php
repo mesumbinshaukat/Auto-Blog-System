@@ -1,19 +1,11 @@
 <?php
 
+use Illuminate\Foundation\Inspiring;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
-use App\Jobs\GenerateDailyBlogs;
-use App\Jobs\BackupDatabase;
 
-Schedule::job(new GenerateDailyBlogs)->dailyAt('00:00');
-Schedule::job(new BackupDatabase)->dailyAt('23:00');
+Artisan::command('inspire', function () {
+    $this->comment(Inspiring::quote());
+})->purpose('Display an inspiring quote')->hourly();
 
-// Daily System & API Health Check
-Schedule::call(function () {
-    $apiStatus = 'OK'; // Logic to check API connectivity could go here
-    $blogCount = \App\Models\Blog::whereDate('created_at', today())->count();
-    
-    Mail::raw("Daily system check:\nAPIs: $apiStatus\nBlogs Generated Today: $blogCount", function ($message) {
-        $message->to(env('REPORTS_EMAIL'))
-            ->subject('Daily System Health Check');
-    });
-})->dailyAt('23:55');
+Schedule::command('blog:fix-titles')->daily();

@@ -23,7 +23,7 @@ class BlogFactory extends Factory
             'content' => $this->faker->paragraphs(3, true),
             'meta_title' => $title,
             'meta_description' => $this->faker->sentence,
-            'category_id' => \App\Models\Category::first()->id ?? \App\Models\Category::factory(),
+            'category_id' => \App\Models\Category::factory(),
             'published_at' => now(),
             'views' => 0
         ];
