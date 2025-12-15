@@ -108,17 +108,23 @@ class BlogGeneratorService
         ]);
 
         $onProgress && $onProgress('Generating thumbnail...', 90);
-        // 9. Generate thumbnail with ID
-        $thumbnailPath = $this->thumbnailService->generateThumbnail(
-            $slug,
-            $title,
-            $finalContent,
-            $category->name,
-            $blog->id // Pass the ID
-        );
-
-        // 10. Update blog with actual thumbnail
-        $blog->update(['thumbnail_path' => $thumbnailPath]);
+        // 9. Generate thumbnail with ID (Resilient Wrapper)
+        try {
+            $thumbnailPath = $this->thumbnailService->generateThumbnail(
+                $slug,
+                $title,
+                $finalContent,
+                $category->name,
+                $blog->id
+            );
+            
+            // 10. Update blog with actual thumbnail
+            $blog->update(['thumbnail_path' => $thumbnailPath]);
+            
+        } catch (\Exception $e) {
+            Log::warning("Thumbnail generation failed for blog {$blog->id}: " . $e->getMessage());
+            // Continue without thumbnail (it will use placeholder or default)
+        }
         
         // Double-check and fix any issues (e.g. if title logic changed post-creation)
         $this->titleSanitizer->fixBlog($blog);

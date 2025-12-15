@@ -111,8 +111,17 @@ class ScrapingService
             // Simple sleep for politeness
             usleep(500000); // 0.5s
 
-            $response = $this->client->get($url);
-            $html = $response->getBody()->getContents();
+            // Use Http facade with user agent
+            $response = \Illuminate\Support\Facades\Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            ])->timeout(15)->get($url);
+            
+            if (!$response->successful()) {
+                Log::warning("Scraping $url returned status: " . $response->status());
+                return "";
+            }
+            
+            $html = $response->body();
             $crawler = new Crawler($html);
 
             // Extract Main Article Content
@@ -140,37 +149,51 @@ class ScrapingService
      */
     public function researchTopic(string $topic): string
     {
-        // 1. First attempt: Search specific sources if topic matches known context
-        // This is complex without a search engine API. 
-        // Strategy: Use Wikipedia as base + Try to find news link from Topic string if it looks like a headline?
-        // Actually, simple fallback: Wikipedia + DuckDuckGo (simulated via scraping results page if possible, but Google/DDG block scraping).
-        // Safest: Wikipedia + known trusted domains search url?
-        // For now, defaulting to Wikipedia as the reliable seeded data, 
-        // BUT if the topic came from RSS (which we don't pass here directly, we pass 'topic' string), 
-        // we might lose the link. 
-        // IMPROVEMENT: In the future, pass the source link with the topic.
-        // Current: Fallback to generic research.
-        
-        $sources = [
-            "https://en.wikipedia.org/wiki/" . str_replace(' ', '_', $topic),
-        ];
-
         $researchData = [];
         
-        foreach ($sources as $url) {
-            try {
-                $content = $this->scrapeContent($url);
+        // 1. Wikipedia Search API (Better reliably than guessing URL)
+        try {
+            $searchUrl = "https://en.wikipedia.org/w/api.php";
+            Log::info("Searching Wikipedia API for: $topic");
+            
+            // Use Http facade for easier testing/mocking
+            $response = \Illuminate\Support\Facades\Http::timeout(10)->get($searchUrl, [
+                'action' => 'query',
+                'list' => 'search',
+                'srsearch' => $topic,
+                'format' => 'json',
+                'srlimit' => 1
+            ]);
+            
+            $json = $response->json();
+            
+            if (!empty($json['query']['search'][0])) {
+                $result = $json['query']['search'][0];
+                $title = $result['title'];
+                $snippet = strip_tags($result['snippet']);
+                $pageUrl = "https://en.wikipedia.org/wiki/" . str_replace(' ', '_', $title);
+                
+                Log::info("Wikipedia Found: '$title'. Scraping URL: $pageUrl");
+                
+                $content = $this->scrapeContent($pageUrl);
                 if (!empty($content)) {
-                    $researchData[] = "Source: Wikipedia\n" . substr($content, 0, 1500) . "..."; // Limit context
+                    $researchData[] = "Source: Wikipedia ($title)\nFrom: $pageUrl\n$content";
+                } else {
+                    // Use API snippet as fallback if scraping fails
+                    $researchData[] = "Source: Wikipedia ($title - Snippet)\n$snippet...";
                 }
-            } catch (\Exception $e) {
-                Log::warning("Failed to research from $url: " . $e->getMessage());
+            } else {
+                Log::warning("Wikipedia search returned no results for: $topic");
             }
+        } catch (\Exception $e) {
+            Log::warning("Wikipedia research failed: " . $e->getMessage());
         }
+
+        // 2. Add more sources here in future (e.g. Bing Search API if key available)
 
         return !empty($researchData) 
             ? "Research findings:\n" . implode("\n\n", $researchData)
-            : "";
+            : "No external research available. Please generate content based on general knowledge about this topic.";
     }
 
     protected function fetchFallbackTopics(string $category): array

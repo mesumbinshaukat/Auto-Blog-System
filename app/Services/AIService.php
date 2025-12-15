@@ -118,19 +118,22 @@ class AIService
                     $status = $response->status();
                     Log::warning("Gemini {$keyLabel} key attempt {$attempt} failed: HTTP {$status}");
                     
-                    // Don't retry on 404 (model not found) or 400 (bad request)
+                    // Don't retry on 404 (model not found) or 400 (bad request) - unless it's a quote error
                     if (in_array($status, [400, 404])) {
                         break;
                     }
                     
                     if ($attempt < $maxRetries) {
-                        sleep(2); // Wait before retry
+                        $delay = pow(2, $attempt); // Exponential backoff: 2s, 4s, 8s...
+                        Log::warning("Retrying in {$delay}s...");
+                        sleep($delay);
                     }
                     
                 } catch (\Exception $e) {
                     Log::warning("Gemini {$keyLabel} key attempt {$attempt} exception: " . $e->getMessage());
                     if ($attempt < $maxRetries) {
-                        sleep(2);
+                        $delay = pow(2, $attempt);
+                        sleep($delay);
                     }
                 }
             }

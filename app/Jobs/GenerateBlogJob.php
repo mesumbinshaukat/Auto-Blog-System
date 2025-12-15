@@ -16,7 +16,8 @@ class GenerateBlogJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 600; // 10 minutes
+    public $timeout = 900; // 15 minutes
+    public $tries = 5;
 
     protected $categoryId;
     protected $jobId;

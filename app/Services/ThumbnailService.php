@@ -165,6 +165,9 @@ class ThumbnailService
                     } elseif ($status === 429) {
                         Log::warning("Hugging Face rate limit exceeded");
                         return null; // Don't retry on rate limit
+                    } elseif ($status === 402) {
+                        Log::warning("Hugging Face quota exceeded (Payment Required). using SVG default.");
+                        return null; // Don't retry, immediate fallback
                     } else {
                         sleep(2); // Wait before retry for other errors
                     }
@@ -360,63 +363,85 @@ CRITICAL REQUIREMENTS:
 
         foreach ($keys as $index => $apiKey) {
             $keyName = $index === 0 ? "Primary" : "Fallback";
+            $maxRetries = 3;
             
-            // Use v1beta with gemini-2.0-flash-exp (current experimental model as of Dec 2024)
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$apiKey}";
-            
-            try {
-                $response = Http::withOptions(['verify' => false])
-                    ->timeout(30)
-                    ->post($url, [
-                        'contents' => [
-                            ['parts' => [['text' => $prompt]]]
-                        ]
-                    ]);
-
-                // Log response status for debugging
-                Log::info("Gemini API ($keyName) response status: " . $response->status());
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                // Use v1beta with gemini-2.0-flash-exp (current experimental model as of Dec 2024)
+                $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={$apiKey}";
                 
-                if ($response->successful()) {
-                    $data = $response->json();
+                try {
+                    $response = Http::withOptions(['verify' => false])
+                        ->timeout(30)
+                        ->post($url, [
+                            'contents' => [
+                                ['parts' => [['text' => $prompt]]]
+                            ]
+                        ]);
+
+                    // Log response status for debugging
+                    Log::info("Gemini API ($keyName, attempt $attempt) response status: " . $response->status());
                     
-                    $content = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
-                    
-                    if ($content) {
-                        Log::info("Gemini API ($keyName) content extracted successfully");
+                    if ($response->successful()) {
+                        $data = $response->json();
                         
-                        // Extract JSON from response (handle code blocks)
-                        if (preg_match('/```json\s*(\{.*?\})\s*```/s', $content, $matches)) {
-                            $jsonStr = $matches[1];
-                        } else {
-                            preg_match('/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/s', $content, $matches);
-                            $jsonStr = $matches[0] ?? null;
-                        }
+                        $content = $data['candidates'][0]['content']['parts'][0]['text'] ?? null;
                         
-                        if ($jsonStr) {
-                            $analysis = json_decode($jsonStr, true);
-                            if ($analysis) {
-                                return $analysis;
+                        if ($content) {
+                            Log::info("Gemini API ($keyName) content extracted successfully");
+                            
+                            // Extract JSON from response (handle code blocks)
+                            if (preg_match('/```json\s*(\{.*?\})\s*```/s', $content, $matches)) {
+                                $jsonStr = $matches[1];
                             } else {
-                                Log::error("JSON decode failed for $keyName key");
+                                preg_match('/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/s', $content, $matches);
+                                $jsonStr = $matches[0] ?? null;
+                            }
+                            
+                            if ($jsonStr) {
+                                $analysis = json_decode($jsonStr, true);
+                                if ($analysis) {
+                                    return $analysis;
+                                } else {
+                                    Log::error("JSON decode failed for $keyName key");
+                                }
+                            } else {
+                                Log::error("No JSON found in Gemini response for $keyName key");
                             }
                         } else {
-                            Log::error("No JSON found in Gemini response for $keyName key");
+                            Log::error("No content in Gemini response for $keyName key");
                         }
+                        
+                        // If successful (or successfully parsed failure), return or break
+                        if (isset($analysis)) return $analysis;
+                        break; // Move to next key if content extraction failed but request was 200 (likely bad model output)
+                        
                     } else {
-                        Log::error("No content in Gemini response for $keyName key");
+                        $status = $response->status();
+                        Log::error("Gemini API ($keyName, attempt $attempt) failed. Status: $status");
+                        
+                        // Handle 429
+                        if ($status === 429) {
+                            if ($attempt < $maxRetries) {
+                                $delay = pow(2, $attempt);
+                                Log::warning("Gemini 429. Retrying in {$delay}s...");
+                                sleep($delay);
+                                continue;
+                            }
+                        } else {
+                            break; // Don't retry other errors on same key (e.g. 400 Bad Request)
+                        }
                     }
-                } else {
-                    Log::error("Gemini API ($keyName) request failed. Status: " . $response->status());
+                } catch (\Exception $e) {
+                    Log::error("Gemini analysis exception ($keyName, attempt $attempt): " . $e->getMessage());
+                    if ($attempt < $maxRetries) {
+                        $delay = pow(2, $attempt); 
+                        sleep($delay);
+                    }
                 }
-            } catch (\Exception $e) {
-                Log::error("Gemini analysis exception ($keyName): " . $e->getMessage());
-            }
-            
-            // If we get here, this key failed. Continue to next key if available.
-            if ($index < count($keys) - 1) {
-                Log::warning("Gemini $keyName key failed, trying next key...");
             }
         }
+            
+
 
         return null;
     }
