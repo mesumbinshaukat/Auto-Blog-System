@@ -197,9 +197,7 @@ class ThumbnailService
         Log::warning("All HuggingFace API keys exhausted for thumbnail generation");
         return null;
     }
-        
-        return null;
-    }
+
 
     /**
      * Build enhanced prompt for Hugging Face FLUX.1-schnell
