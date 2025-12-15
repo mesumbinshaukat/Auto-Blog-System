@@ -207,6 +207,15 @@ php artisan test
 ## ⚠️ Edge Cases & Troubleshooting
 
 - **AI Quota Exceeded (429)**: The system automatically fails over from Gemini to Hugging Face FLUX.1. If both fail, it uses a generic SVG fallback.
+- **Gemini API Model Errors**: 
+  - If you see `404 model not found` errors, the Gemini API model may have changed.
+  - Current implementation uses `gemini-2.0-flash-exp` (experimental) via `v1beta` endpoint.
+  - Check [Google AI Studio](https://aistudio.google.com/) for latest available models.
+  - Update model name in `AIService.php` if needed (search for `gemini-2.0-flash-exp`).
+- **Link Injection Failures**: 
+  - System tries Gemini first (2 retries), then falls back to HuggingFace.
+  - Check `storage/logs/laravel.log` for specific error messages.
+  - Verify both `GEMINI_API_KEY` and `HUGGINGFACE_API_KEY` are set in `.env`.
 - **Queue Not Processing**: Production environments may need diagnostic scripts. Check `cron_test_queue.php` in the root (if uploaded) to debug cron execution.
 - **SSL Certificate Errors**: For local development `verify` is set to `false` in Guzzle clients to avoid certificate issues. Ensure this is enabled for production.
 - **Rate Limits**: The system implements exponential backoff (retries) for API calls.
