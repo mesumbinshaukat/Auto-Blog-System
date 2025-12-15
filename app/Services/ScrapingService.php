@@ -23,8 +23,20 @@ class ScrapingService
         ],
         'ai' => [
             'https://www.wired.com/feed/tag/ai/latest/rss',
-            'https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml',
-            'https://feeds.arstechnica.com/arstechnica/technology-lab'
+            'https://techcrunch.com/tag/artificial-intelligence/feed/',
+            'https://arstechnica.com/tag/artificial-intelligence/rss/'
+        ],
+        'games' => [
+            'https://www.polygon.com/rss/index.xml',
+            'https://www.ign.com/rss/articles',
+            'https://kotaku.com/rss',
+            'https://www.gamespot.com/feeds/mashup/'
+        ],
+        'sports' => [
+            'https://feeds.bbci.co.uk/sport/rss.xml',
+            'https://www.espn.com/espn/rss/news',
+            'https://sports.yahoo.com/rss/',
+            'https://www.foxsports.com/stories/rss'
         ],
         'politics' => [
             'https://rss.politico.com/congress.xml',
@@ -300,62 +312,124 @@ class ScrapingService
                 'Best Programming Languages for Developers', 
                 'Web Assembly Complete Guide',
                 'Quantum Computing Breakthroughs',
-                'Cybersecurity Best Practices'
+                'Cybersecurity Best Practices',
+                'Cloud Computing Architecture Trends',
+                'DevOps and CI/CD Pipeline Optimization',
+                'Blockchain Technology Beyond Cryptocurrency',
+                'Edge Computing and IoT Integration',
+                'Low-Code Development Platforms Revolution',
+                '5G Technology Impact on Industries',
+                'Serverless Architecture Best Practices'
             ],
             'business' => [
                 'Remote Work Trends and Strategies', 
                 'Startup Funding Guide', 
                 'Leadership Skills for Modern Managers',
                 'Digital Transformation in Business',
-                'Sustainable Business Practices'
+                'Sustainable Business Practices',
+                'Customer Experience Optimization',
+                'Data-Driven Decision Making',
+                'Agile Project Management Techniques',
+                'E-commerce Growth Strategies',
+                'Brand Building in Digital Age',
+                'Supply Chain Innovation',
+                'Employee Retention Best Practices'
             ],
             'ai' => [
                 'Generative AI Explained', 
                 'LLM Fine-tuning Techniques', 
                 'Ethical AI Development',
                 'AI in Healthcare Applications',
-                'Machine Learning Best Practices'
+                'Machine Learning Best Practices',
+                'Natural Language Processing Advances',
+                'Computer Vision Applications',
+                'AI Model Deployment Strategies',
+                'Reinforcement Learning Use Cases',
+                'AI Bias Detection and Mitigation',
+                'Neural Network Architecture Design',
+                'AI-Powered Automation Tools'
             ],
             'games' => [
                 'Top RPGs of the Year', 
                 'Indie Game Development Guide', 
                 'Esports Industry Growth',
                 'Game Design Principles',
-                'Virtual Reality Gaming Trends'
+                'Virtual Reality Gaming Trends',
+                'Mobile Gaming Market Analysis',
+                'Game Monetization Strategies',
+                'Cross-Platform Gaming Development',
+                'Narrative Design in Video Games',
+                'Game Engine Comparison Guide',
+                'Multiplayer Game Architecture',
+                'Gaming Community Management'
             ],
             'politics' => [
                 'Global Climate Policies', 
                 'Digital Privacy Laws',
                 'International Relations Updates',
                 'Democratic Governance Trends',
-                'Policy Making in Digital Age'
+                'Policy Making in Digital Age',
+                'Electoral System Reforms',
+                'Public Policy Analysis Methods',
+                'Government Transparency Initiatives',
+                'Political Campaign Strategies',
+                'Legislative Process Explained',
+                'Civic Engagement in Modern Society'
             ],
             'science' => [
                 'Latest Space Exploration Discoveries',
                 'Climate Change Research Updates',
                 'Breakthrough Medical Research',
                 'Physics and Quantum Mechanics',
-                'Environmental Conservation Efforts'
+                'Environmental Conservation Efforts',
+                'Renewable Energy Technologies',
+                'Genetic Engineering Advances',
+                'Ocean Exploration Findings',
+                'Neuroscience Research Breakthroughs',
+                'Materials Science Innovations',
+                'Astronomy and Cosmology Updates',
+                'Biotechnology Applications'
             ],
             'health' => [
                 'Mental Health Awareness',
                 'Nutrition and Wellness Tips',
                 'Exercise and Fitness Trends',
                 'Medical Technology Advances',
-                'Preventive Healthcare Strategies'
+                'Preventive Healthcare Strategies',
+                'Sleep Science and Optimization',
+                'Stress Management Techniques',
+                'Chronic Disease Prevention',
+                'Holistic Health Approaches',
+                'Telemedicine and Digital Health',
+                'Immunology Research Updates',
+                'Healthy Aging Strategies'
             ],
             'sports' => [
                 'Training for Marathon Success', 
                 'Nutrition for Athletes',
                 'Sports Psychology Techniques',
                 'Injury Prevention Strategies',
-                'Professional Sports Analysis'
+                'Professional Sports Analysis',
+                'Strength and Conditioning Programs',
+                'Sports Analytics and Data Science',
+                'Youth Sports Development',
+                'Recovery and Rehabilitation Methods',
+                'Sports Equipment Technology',
+                'Coaching Strategies and Tactics',
+                'Performance Enhancement Techniques'
             ]
         ];
         return $fallbacks[strtolower($category)] ?? [
             'Current Industry Trends',
             'Expert Analysis and Insights',
-            'Future Predictions and Forecasts'
+            'Future Predictions and Forecasts',
+            'Innovation and Technology Updates',
+            'Best Practices and Guidelines',
+            'Market Analysis and Opportunities',
+            'Professional Development Tips',
+            'Case Studies and Success Stories',
+            'Emerging Trends and Patterns',
+            'Strategic Planning Approaches'
         ];
     }
 }

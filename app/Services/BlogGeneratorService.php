@@ -30,106 +30,192 @@ class BlogGeneratorService
         $this->linkDiscovery = $linkDiscovery;
     }
 
-    public function generateBlogForCategory(Category $category, ?callable $onProgress = null)
+    public function generateBlogForCategory(Category $category, ?callable $onProgress = null, ?string $customPrompt = null)
     {
-        $onProgress && $onProgress('Scraping trending topics...', 10);
-        // 1. Get Topics
-        $topics = $this->scraper->fetchTrendingTopics($category->slug);
-        $topic = $topics[array_rand($topics)];
-
-        // Check duplicates
-        if (Blog::where('title', 'LIKE', "%$topic%")->exists()) {
-            Log::info("Skipping duplicate topic: $topic");
-            $onProgress && $onProgress('Duplicate topic found, retrying...', 15);
-            return null;
-        }
-
-        $onProgress && $onProgress("Researching topic: $topic...", 30);
-        // 2. Multi-Source Research
-        Log::info("Researching topic: $topic");
-        $researchData = $this->scraper->researchTopic($topic);
-        
-        $onProgress && $onProgress('Generating draft with AI...', 50);
-        // 3. Generate Draft with new AI service
-        $draft = $this->ai->generateRawContent($topic, $category->name, $researchData);
-
-        $onProgress && $onProgress('Optimizing and humanizing content...', 70);
-        // 4. Optimize and Humanize (returns ['content' => string, 'toc' => array])
-        $optimizedData = $this->ai->optimizeAndHumanize($draft);
-        $finalContent = $optimizedData['content'];
-        $toc = $optimizedData['toc'];
-        
-        // 5. Validate content
-        $wordCount = str_word_count(strip_tags($finalContent));
-        Log::info("Blog generated: $wordCount words");
-        
-        // 5c. Link Management & SEO Optimization
-        $onProgress && $onProgress('Optimizing Link Structure & SEO...', 75);
+        $blog = null;
+        $error = null;
+        $logs = [];
+        $isDuplicate = false;
         
         try {
-            $seoResult = $this->processSeoLinks($finalContent, $category);
-            $finalContent = $seoResult['html'];
+            $onProgress && $onProgress('Scraping trending topics...', 10);
             
-            // Log SEO actions for debugging
-            if (!empty($seoResult['logs'])) {
-                Log::info("SEO Optimization Logs for '$topic': " . json_encode($seoResult['logs']));
+            // 0. Custom Prompt Handling (URL Extraction)
+            $customContext = "";
+            if ($customPrompt) {
+                // Check for URL in prompt
+                if (preg_match('/https?:\/\/[^\s]+/', $customPrompt, $matches)) {
+                    $url = $matches[0];
+                    $logs[] = "Detailed custom prompt contains URL: $url. Attempting scrape...";
+                    
+                    try {
+                        $scrapedContent = $this->scraper->scrapeContent($url);
+                        if ($scrapedContent) {
+                            $customContext = "\n\n[USER PROVIDED SOURCE CONTENT START]\n" . Str::limit($scrapedContent, 5000) . "\n[USER PROVIDED SOURCE CONTENT END]\n";
+                            $logs[] = "Successfully scraped content from user URL";
+                        } else {
+                            $logs[] = "Warning: Scraped content was empty";
+                            $customContext = "\n\n[Note: User provided URL $url but scraping returned no content. Proceed with general knowledge.]\n";
+                        }
+                    } catch (\Exception $e) {
+                         Log::warning("Failed to scrape user URL: " . $e->getMessage());
+                         $logs[] = "Warning: Failed to scrape user URL ($url). Proceeding without it.";
+                         $customContext = "\n\n[Note: User provided URL $url but scraping failed. Proceed with general knowledge.]\n";
+                    }
+                }
             }
-        } catch (\Exception $e) {
-            Log::error("SEO Optimization failed during generation: " . $e->getMessage());
-            // Continue with original content if SEO fails, but log it
-        }
 
-        // 6. Extract Title
-        $title = $topic;
-        if (preg_match('/<h1[^>]*>(.*?)<\/h1>/', $finalContent, $matches)) {
-            $title = strip_tags($matches[1]);
-        }
-        
-        // Sanitize title to remove entities
-        $title = $this->titleSanitizer->sanitizeTitle($title);
-
-        // 7. Generate slug
-        $slug = Str::slug($title . '-' . now()->timestamp);
-
-        // 8. Create Blog record first to get ID
-        $onProgress && $onProgress('Saving initial record...', 85);
-        $blog = Blog::create([
-            'title' => $title,
-            'slug' => $slug,
-            'content' => $finalContent,
-            'category_id' => $category->id,
-            'published_at' => now(),
-             // Enhanced SEO Meta
-            'meta_title' => Str::limit($title, 55) . ' - ' . config('app.name', 'AutoBlog'),
-            'meta_description' => Str::limit(strip_tags($finalContent), 155),
-            'tags_json' => [$category->name, 'Trending', $topic, date('Y')],
-            'table_of_contents_json' => $toc,
-            'thumbnail_path' => null, // Placeholder
-        ]);
-
-        $onProgress && $onProgress('Generating thumbnail...', 90);
-        // 9. Generate thumbnail with ID (Resilient Wrapper)
-        try {
-            $thumbnailPath = $this->thumbnailService->generateThumbnail(
-                $slug,
-                $title,
-                $finalContent,
-                $category->name,
-                $blog->id
-            );
+            // 1. Get Topics
+            $topics = $this->scraper->fetchTrendingTopics($category->slug);
+            $logs[] = "Fetched " . count($topics) . " topics for category: {$category->name}";
             
-            // 10. Update blog with actual thumbnail
-            $blog->update(['thumbnail_path' => $thumbnailPath]);
+            // 2. Duplicate Check with Retry Loop (max 10 attempts)
+            $attempt = 0;
+            $maxAttempts = 10;
+            $selectedTopic = null;
+            
+            while ($attempt < $maxAttempts) {
+                $topic = $topics[array_rand($topics)];
+                
+                if (!Blog::where('title', 'LIKE', "%$topic%")->exists()) {
+                    $selectedTopic = $topic;
+                    $logs[] = "Selected topic: $topic (attempt $attempt)";
+                    break;
+                }
+                
+                Log::info("Retry $attempt: Topic '$topic' is duplicate, trying another...");
+                $logs[] = "Retry $attempt: Topic '$topic' is duplicate, trying another...";
+                $attempt++;
+            }
+            
+            if (!$selectedTopic) {
+                Log::error("All 10 topic attempts were duplicates for category: {$category->name}");
+                $logs[] = "ERROR: All 10 topic attempts were duplicates";
+                $isDuplicate = true;
+                $onProgress && $onProgress('All topics are duplicates, aborting...', 15);
+                return null;
+            }
+            
+            $topic = $selectedTopic;
+
+            $onProgress && $onProgress("Researching topic: $topic...", 30);
+            // 3. Multi-Source Research
+            Log::info("Researching topic: $topic");
+            $logs[] = "Researching topic: $topic";
+            $researchData = $this->scraper->researchTopic($topic);
+            
+            // Append Custom Context if exists
+            if ($customPrompt) {
+                 $researchData .= "\n\nIMPORTANT: The user provided specific instructions: \"$customPrompt\"" . $customContext;
+            }
+            
+            $onProgress && $onProgress('Generating draft with AI...', 50);
+            // 4. Generate Draft with new AI service
+            $logs[] = "Generating content with AI...";
+            $draft = $this->ai->generateRawContent($topic, $category->name, $researchData);
+
+            $onProgress && $onProgress('Optimizing and humanizing content...', 70);
+            // 5. Optimize and Humanize (returns ['content' => string, 'toc' => array])
+            $logs[] = "Optimizing and humanizing content...";
+            $optimizedData = $this->ai->optimizeAndHumanize($draft);
+            $finalContent = $optimizedData['content'];
+            $toc = $optimizedData['toc'];
+            
+            // 6. Validate content
+            $wordCount = str_word_count(strip_tags($finalContent));
+            Log::info("Blog generated: $wordCount words");
+            $logs[] = "Blog generated: $wordCount words";
+            
+            // 7. Link Management & SEO Optimization
+            $onProgress && $onProgress('Optimizing Link Structure & SEO...', 75);
+            
+            try {
+                $logs[] = "Processing SEO links...";
+                $seoResult = $this->processSeoLinks($finalContent, $category);
+                $finalContent = $seoResult['html'];
+                
+                // Log SEO actions for debugging
+                if (!empty($seoResult['logs'])) {
+                    Log::info("SEO Optimization Logs for '$topic': " . json_encode($seoResult['logs']));
+                    $logs = array_merge($logs, array_slice($seoResult['logs'], 0, 5)); // Add first 5 SEO logs
+                }
+            } catch (\Exception $e) {
+                Log::error("SEO Optimization failed during generation: " . $e->getMessage());
+                $logs[] = "WARNING: SEO Optimization failed: " . $e->getMessage();
+                // Continue with original content if SEO fails, but log it
+            }
+
+            // 8. Extract Title
+            $title = $topic;
+            if (preg_match('/<h1[^>]*>(.*?)<\/h1>/', $finalContent, $matches)) {
+                $title = strip_tags($matches[1]);
+            }
+            
+            // Sanitize title to remove entities
+            $title = $this->titleSanitizer->sanitizeTitle($title);
+
+            // 9. Generate slug
+            $slug = Str::slug($title . '-' . now()->timestamp);
+
+            // 10. Create Blog record first to get ID
+            $onProgress && $onProgress('Saving initial record...', 85);
+            $logs[] = "Creating blog record...";
+            $blog = Blog::create([
+                'title' => $title,
+                'slug' => $slug,
+                'content' => $finalContent,
+                'custom_prompt' => $customPrompt, 
+                'category_id' => $category->id,
+                'published_at' => now(),
+                 // Enhanced SEO Meta
+                'meta_title' => Str::limit($title, 55) . ' - ' . config('app.name', 'AutoBlog'),
+                'meta_description' => Str::limit(strip_tags($finalContent), 155),
+                'tags_json' => [$category->name, 'Trending', $topic, date('Y')],
+                'table_of_contents_json' => $toc,
+                'thumbnail_path' => null, // Placeholder
+            ]);
+
+            $onProgress && $onProgress('Generating thumbnail...', 90);
+            // 11. Generate thumbnail with ID (Resilient Wrapper)
+            try {
+                $logs[] = "Generating thumbnail...";
+                $thumbnailPath = $this->thumbnailService->generateThumbnail(
+                    $slug,
+                    $title,
+                    $finalContent,
+                    $category->name,
+                    $blog->id
+                );
+                
+                // 12. Update blog with actual thumbnail
+                $blog->update(['thumbnail_path' => $thumbnailPath]);
+                $logs[] = "Thumbnail generated successfully";
+                
+            } catch (\Exception $e) {
+                Log::warning("Thumbnail generation failed for blog {$blog->id}: " . $e->getMessage());
+                $logs[] = "WARNING: Thumbnail generation failed: " . $e->getMessage();
+                // Continue without thumbnail (it will use placeholder or default)
+            }
+            
+            // Double-check and fix any issues (e.g. if title logic changed post-creation)
+            $this->titleSanitizer->fixBlog($blog);
+            
+            $onProgress && $onProgress('Done!', 100);
+            $logs[] = "Blog generation completed successfully";
             
         } catch (\Exception $e) {
-            Log::warning("Thumbnail generation failed for blog {$blog->id}: " . $e->getMessage());
-            // Continue without thumbnail (it will use placeholder or default)
+            $error = $e;
+            Log::error("Blog generation failed: " . $e->getMessage());
+            $logs[] = "ERROR: " . $e->getMessage();
+        } finally {
+            // Send email notification for all scenarios
+            try {
+                \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
+                    ->send(new \App\Mail\BlogGenerationReport($blog, $error, $logs, $isDuplicate));
+            } catch (\Exception $mailEx) {
+                Log::error("Failed to send blog generation email: " . $mailEx->getMessage());
+            }
         }
-        
-        // Double-check and fix any issues (e.g. if title logic changed post-creation)
-        $this->titleSanitizer->fixBlog($blog);
-        
-        $onProgress && $onProgress('Done!', 100);
         
         return $blog;
     }

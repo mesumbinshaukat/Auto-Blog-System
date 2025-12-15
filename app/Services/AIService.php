@@ -163,9 +163,9 @@ class AIService
         }
 
         $models = [
-            'deepseek/deepseek-chat:free',
-            'mistralai/mistral-7b-instruct:free',
-            'nousresearch/hermes-3-llama-3.1-8b:free'
+            'deepseek/deepseek-chat',
+            'mistralai/mistral-7b-instruct',
+            'nousresearch/hermes-3-llama-3.1-8b'
         ];
         
         foreach ($models as $modelIndex => $model) {
@@ -200,13 +200,19 @@ class AIService
                     $status = $response->status();
                     Log::warning("OpenRouter $modelLabel attempt $attempt failed: HTTP $status");
                     
+                    // Don't retry on 404 (model not found) or 400 (bad request)
+                    if ($status === 404) {
+                        Log::warning("OpenRouter model $model not found (404), skipping to next model");
+                        break; // Skip to next model immediately
+                    } elseif ($status === 400) {
+                        break; // Don't retry on bad request
+                    }
+                    
                     // Handle 429 with exponential backoff
                     if ($status === 429 && $attempt < $maxRetries) {
                         $delay = pow(2, $attempt);
                         Log::warning("OpenRouter rate limit, waiting {$delay}s");
                         sleep($delay);
-                    } elseif (in_array($status, [400, 404])) {
-                        break; // Don't retry on bad request or not found
                     }
                     
                 } catch (\Exception $e) {

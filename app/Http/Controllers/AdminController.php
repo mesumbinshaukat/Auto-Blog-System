@@ -118,14 +118,18 @@ class AdminController extends Controller
 
     public function generate(Request $request)
     {
-        $request->validate(['category_id' => 'required|exists:categories,id']);
+        $request->validate([
+            'category_id' => 'required|exists:categories,id',
+            'custom_prompt' => 'nullable|string|max:2000'
+        ]);
         
         $jobId = Str::uuid()->toString();
+        $customPrompt = $request->input('custom_prompt');
         
-        Log::info("Dispatching GenerateBlogJob for Category {$request->category_id} with ID: $jobId");
+        Log::info("Dispatching GenerateBlogJob for Category {$request->category_id} with ID: $jobId" . ($customPrompt ? " and Prompt: " . Str::limit($customPrompt, 50) : ""));
         
-        // Dispatch async job
-        \App\Jobs\GenerateBlogJob::dispatch($request->category_id, $jobId);
+        // Dispatch async job with custom prompt
+        \App\Jobs\GenerateBlogJob::dispatch($request->category_id, $jobId, $customPrompt);
 
         // Trigger queue worker to process the job immediately
         $this->triggerQueueWorker();

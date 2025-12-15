@@ -90,7 +90,7 @@
             }">
                 <form x-ref="genForm" @submit.prevent="startGeneration" class="mt-2 flex flex-col space-y-2">
                     <div class="flex space-x-2">
-                        <select name="category_id" class="text-sm border rounded p-1 w-full" :disabled="loading">
+                        <select name="category_id" class="text-sm border rounded p-1 w-full flex-grow" :disabled="loading">
                             @foreach(\App\Models\Category::all() as $cat)
                                 <option value="{{ $cat->id }}">{{ $cat->name }}</option>
                             @endforeach
@@ -100,6 +100,8 @@
                             <span x-show="loading">...</span>
                         </button>
                     </div>
+                    
+                    <textarea name="custom_prompt" rows="2" class="w-full text-xs border rounded p-1 mt-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Optional: Custom prompt or URL to scrape..." :disabled="loading"></textarea>
                     
                     <div x-show="loading" class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mt-2">
                         <div class="bg-purple-600 h-2.5 rounded-full transition-all duration-500" :style="'width: ' + progress + '%'"></div>

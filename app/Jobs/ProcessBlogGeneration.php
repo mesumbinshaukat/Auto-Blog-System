@@ -24,28 +24,44 @@ class ProcessBlogGeneration implements ShouldQueue
 
     public function handle(BlogGeneratorService $generator): void
     {
+        $blog = null;
+        $error = null;
+        $logs = [];
+        $category = null;
+        
         try {
             $category = Category::find($this->categoryId);
             if (!$category) {
                 Log::error("Category ID {$this->categoryId} not found for blog generation job.");
+                $logs[] = "ERROR: Category ID {$this->categoryId} not found";
                 return;
             }
 
             Log::info("Starting blog generation for category: {$category->name}");
+            $logs[] = "Starting blog generation for category: {$category->name}";
+            
             $blog = $generator->generateBlogForCategory($category);
             
             if ($blog) {
                 Log::info("Blog generated successfully: {$blog->title}");
+                $logs[] = "Blog generated successfully: {$blog->title}";
             } else {
                 Log::warning("Blog generation returned null for category: {$category->name}");
+                $logs[] = "WARNING: Blog generation returned null (likely duplicate)";
             }
 
         } catch (\Exception $e) {
+            $error = $e;
             Log::error("Blog generation job failed: " . $e->getMessage());
-            
-            // Send email notification
-            \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL'))
-                ->send(new \App\Mail\BlogGenerationFailed($e->getMessage(), $category->name ?? 'Unknown'));
+            $logs[] = "ERROR: " . $e->getMessage();
+        } finally {
+            // Send unified email notification
+            try {
+                \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
+                    ->send(new \App\Mail\BlogGenerationReport($blog, $error, $logs, false));
+            } catch (\Exception $mailEx) {
+                Log::error("Failed to send blog generation email: " . $mailEx->getMessage());
+            }
         }
     }
 }
