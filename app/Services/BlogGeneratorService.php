@@ -141,9 +141,21 @@ class BlogGeneratorService
         $content = $cleanedData['html'];
         $externalCount = $cleanedData['count'];
         $linkLogs = $cleanedData['logs'] ?? [];
-        
+        if ($externalCount < 2) {
+             // Retroactive Link Injection via AI
+             // This is expensive/slow, but required for "Fix" command to actually work on old blogs.
+             $contentWithLinks = $this->ai->injectSmartLinks($content);
+             
+             // Validate AGAIN to ensure AI didn't add junk
+             $cleanedData = $this->validateAndCleanLinks($contentWithLinks);
+             $content = $cleanedData['html'];
+             $externalCount = $cleanedData['count'];
+             // Merge logs?
+             $linkLogs = array_merge($linkLogs, $cleanedData['logs'] ?? []);
+        }
+
         // 2. Insert Internal Links if room
-        $externalLinkCount = substr_count($content, 'href="http');
+        $externalLinkCount = $externalCount; // Use the updated count
         $limitInternal = min(3, 8 - $externalLinkCount);
         $internalCount = 0;
         

@@ -229,6 +229,41 @@ Begin writing the blog post now:";
         return $content;
     }
 
+    public function injectSmartLinks(string $content): string
+    {
+        $prompt = "You are an SEO Editor. 
+Task: Analyze the text and inject 2-3 external hyperlinks to authoritative sources (Wikipedia, Major News, Edu/Gov sites) for key terms.
+Rules:
+1.  Identify 2-3 specific, relevant proper nouns or concepts.
+2.  Wrap them in <a href='URL' rel='dofollow' target='_blank'>term</a>.
+3.  Use ACTUAL, valid URLs (prioritize Wikipedia).
+4.  Do NOT change any other text or formatting.
+5.  Return the FULL HTML with the new links.
+
+Content:
+" . substr($content, 0, 15000);
+
+        try {
+            $response = Http::withHeaders(['Content-Type' => 'application/json'])
+                ->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}", [
+                    'contents' => [['parts' => [['text' => $prompt]]]]
+                ]);
+            
+             if ($response->successful()) {
+                $data = $response->json();
+                 $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                 // Cleanup
+                $text = str_replace('```html', '', $text);
+                $text = str_replace('```', '', $text);
+                return trim($text) ?: $content;
+            }
+        } catch (\Exception $e) {
+            Log::error("Link injection failed: " . $e->getMessage());
+        }
+        
+        return $content;
+    }
+
     protected function expandContent(string $content, string $topic, string $systemPrompt): string
     {
         $expansionPrompt = "The following blog post about \"$topic\" is too short. Expand it by adding more detailed sections, examples, and insights. Maintain the same HTML structure and style.\n\nCurrent content:\n$content\n\nExpanded version:";
