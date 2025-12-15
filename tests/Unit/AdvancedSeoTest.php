@@ -41,16 +41,16 @@ class AdvancedSeoTest extends TestCase
         // we will rely on the real network check or HEADLESS check in the service.
         // example.com should pass. invalid-link-12345.com should fail.
         
-        $output = $service->processSeoLinks($inputHtml, $category);
+        $result = $service->processSeoLinks($inputHtml, $category);
+        $output = $result['html'];
+        
+        // Assert stats
+        $this->assertEquals(1, $result['external_count']);
+        $this->assertGreaterThan(0, $result['internal_count']);
         
         // Check external validation
         $this->assertStringContainsString('href="https://example.com"', $output);
         $this->assertStringContainsString('rel="dofollow"', $output);
-        
-        // Check internal injection
-        // We have 3 paragraphs + 2 others = 5 p. Internal links should inject.
-        // Route naming in factory might differ from real app, but service uses `route('blog.show')`
-        // Ensure route exists (it does from previous steps).
         
         // Check for internal links injection
         // We expect at least one internal link pointing to a blog
