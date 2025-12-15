@@ -283,15 +283,34 @@ class BlogGeneratorService
         
         // Perform a quick HEAD request
         try {
-             // Use stream context for timeout
+             // Use stream context for timeout and USER AGENT
             $context = stream_context_create([
-                'http' => ['method' => 'HEAD', 'timeout' => 2, 'ignore_errors' => true]
+                'http' => [
+                    'method' => 'HEAD', 
+                    'timeout' => 3, 
+                    'ignore_errors' => true,
+                    'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                ]
             ]);
             $headers = @get_headers($url, 0, $context);
+            
+            if (!$headers || empty($headers)) {
+                 // Fallback to GET if HEAD fails (some servers block HEAD)
+                 $context = stream_context_create([
+                    'http' => [
+                        'method' => 'GET', 
+                        'timeout' => 3, 
+                        'ignore_errors' => true,
+                        'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    ]
+                ]);
+                $headers = @get_headers($url, 0, $context);
+            }
+
             if ($headers && strpos($headers[0], '200') !== false) {
                 return true;
             }
-             // Allow 301/302 redirects too?
+             // Allow 301/302 redirects too
             if ($headers && (strpos($headers[0], '301') !== false || strpos($headers[0], '302') !== false)) {
                  return true;
             }

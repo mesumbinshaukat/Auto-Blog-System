@@ -14,13 +14,14 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
     - **Smart Redundancy**: Gemini 2.0 Flash (SVG analysis) → Hugging Face FLUX.1 (WebP generation) → Category Fallback.
     - Uniqueness validation (80% similarity threshold) to prevent generic images.
   - Generates structured content with H1-H6 headings, paragraphs, and tables.
-  - Generates structured content with H1-H6 headings, paragraphs, and tables.
   - Auto-extracts tags and meta descriptions.
-  - **SEO Enhanced**: 
-    - AI-Powered Keyword Research (1 primary, 3 long-tail).
-    - Intelligent Internal Linking (contextual inference).
-    - Optimized Meta Titles and Descriptions.
-    - Automatic Sitemap Generation (`sitemap.xml`) via `BlogObserver`.
+    - **SEO & AISEO Enhanced**: 
+    - **E-E-A-T Optimized**: AI Prompts engineered for Expertise, Experience, Authoritativeness, and Trustworthiness.
+    - **Smart External Linking**: Auto-validates and inserts 2-4 authoritative dofollow links (e.g., Wikipedia, IEEE).
+    - **Keyword Research**: Integrates 1 Primary and 2-3 Long-tail keywords (1-2% density) with Q&A optimization for AI Overviews.
+    - **Intelligent Internal Linking**: Contextually links 3 related blogs to improve crawl depth.
+    - **Optimized Meta**: AI-generated Meta Titles and Descriptions.
+    - **Sitemap Automation**: `BlogObserver` auto-regenerates `sitemap.xml` on create/update/delete.
   - **Smart Title Sanitizer**: Automatically detects and fixes malformed HTML entities (e.g., `&rsquo;` → `’`) in titles and identifying duplicate topics.
 
 - **Smart Scheduling**:
@@ -184,10 +185,16 @@ php artisan blog:fix-titles
 ```
 *Note: This runs daily via the scheduler.*
 
-### SEO Fixes
-To retroactively fix SEO meta tags and inject internal links for existing blogs:
+### Enhanced SEO Fixes & Retrofitting
+To retroactively fix SEO meta tags, validate external links, and inject missing internal links for existing blogs:
 ```bash
 php artisan blog:fix-seo
+```
+**Output provides detailed per-blog stats:**
+```text
+✔ Blog Title
+  External Validated: 2 | Internal Added: 1
+- Another Blog (No changes/Skipped)
 ```
 
 ## 🧪 Testing
