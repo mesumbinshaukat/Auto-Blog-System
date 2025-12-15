@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 class AIService
 {
     protected $hfToken;
+    protected $hfTokenFallback;
     protected $geminiKey;
     protected $geminiKeyFallback;
     
@@ -23,6 +24,7 @@ class AIService
     public function __construct()
     {
         $this->hfToken = env('HUGGINGFACE_API_KEY');
+        $this->hfTokenFallback = env('HUGGINGFACE_API_KEY_FALLBACK');
         $this->geminiKey = env('GEMINI_API_KEY');
         $this->geminiKeyFallback = env('GEMINI_API_KEY_FALLBACK');
     }
@@ -318,50 +320,65 @@ Begin writing the blog post now:";
     protected function callHuggingFaceChatCompletion(string $model, string $systemPrompt, string $userPrompt, int $retries = 3): ?string
     {
         $url = "https://router.huggingface.co/v1/chat/completions";
+        
+        // Try with primary key first, then fallback
+        $tokens = array_filter([$this->hfToken, $this->hfTokenFallback]);
+        
+        foreach ($tokens as $tokenIndex => $token) {
+            $tokenLabel = $tokenIndex === 0 ? 'primary' : 'fallback';
+            Log::info("Trying HuggingFace API with {$tokenLabel} key for model: $model");
 
-        for ($i = 0; $i < $retries; $i++) {
-            try {
-                Log::info("Calling Hugging Face Chat API: $model (attempt " . ($i + 1) . "/$retries)");
-                
-                $response = Http::withToken($this->hfToken)
-                    ->withOptions(['verify' => false])
-                    ->timeout(120)
-                    ->post($url, [
-                        'model' => $model,
-                        'messages' => [
-                            ['role' => 'system', 'content' => $systemPrompt],
-                            ['role' => 'user', 'content' => $userPrompt]
-                        ],
-                        'max_tokens' => 4000,
-                        'temperature' => 0.7,
-                        'stream' => false
-                    ]);
-
-                if ($response->successful()) {
-                    $json = $response->json();
-                    $content = $json['choices'][0]['message']['content'] ?? null;
+            for ($i = 0; $i < $retries; $i++) {
+                try {
+                    Log::info("Calling Hugging Face Chat API: $model ({$tokenLabel} key, attempt " . ($i + 1) . "/$retries)");
                     
-                    if ($content) {
-                        $wordCount = str_word_count(strip_tags($content));
-                        Log::info("Successfully generated content: $wordCount words");
-                        return $this->cleanContent($content);
+                    $response = Http::withToken($token)
+                        ->withOptions(['verify' => false])
+                        ->timeout(120)
+                        ->post($url, [
+                            'model' => $model,
+                            'messages' => [
+                                ['role' => 'system', 'content' => $systemPrompt],
+                                ['role' => 'user', 'content' => $userPrompt]
+                            ],
+                            'max_tokens' => 4000,
+                            'temperature' => 0.7,
+                            'stream' => false
+                        ]);
+
+                    if ($response->successful()) {
+                        $json = $response->json();
+                        $content = $json['choices'][0]['message']['content'] ?? null;
+                        
+                        if ($content) {
+                            $wordCount = str_word_count(strip_tags($content));
+                            Log::info("Successfully generated content with {$tokenLabel} key: $wordCount words");
+                            return $this->cleanContent($content);
+                        }
+                    }
+                    
+                    Log::warning("HF API ({$tokenLabel} key) returned unsuccessful response: " . $response->status());
+                    Log::warning("Response body: " . substr($response->body(), 0, 500));
+                    
+                    if ($i < $retries - 1) {
+                        $sleepTime = pow(2, $i);
+                        Log::info("Waiting {$sleepTime}s before retry...");
+                        sleep($sleepTime);
+                    }
+
+                } catch (\Exception $e) {
+                    Log::error("HF API ({$tokenLabel} key) Attempt " . ($i + 1) . " failed: " . $e->getMessage());
+                    if ($i < $retries - 1) {
+                        $sleepTime = pow(2, $i);
+                        sleep($sleepTime);
                     }
                 }
-                
-                Log::warning("HF API returned unsuccessful response: " . $response->status());
-                Log::warning("Response body: " . substr($response->body(), 0, 500));
-                
-                if ($i < $retries - 1) {
-                    $sleepTime = pow(2, $i);
-                    Log::info("Waiting {$sleepTime}s before retry...");
-                    sleep($sleepTime);
-                }
-
-            } catch (\Exception $e) {
-                Log::error("HF API Attempt " . ($i + 1) . " failed: " . $e->getMessage());
             }
+            
+            Log::warning("All retries exhausted for {$tokenLabel} HuggingFace key on model: $model");
         }
-
+        
+        Log::warning("All HuggingFace API keys exhausted for model: $model");
         return null;
     }
 

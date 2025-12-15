@@ -13,6 +13,7 @@ class ThumbnailService
     protected $geminiKey;
     protected $geminiKeyFallback;
     protected $hfToken;
+    protected $hfTokenFallback;
     protected $imageManager;
 
     public function __construct()
@@ -20,6 +21,7 @@ class ThumbnailService
         $this->geminiKey = env('GEMINI_API_KEY');
         $this->geminiKeyFallback = env('GEMINI_API_KEY_FALLBACK');
         $this->hfToken = env('HUGGINGFACE_API_KEY');
+        $this->hfTokenFallback = env('HUGGINGFACE_API_KEY_FALLBACK');
         $this->imageManager = new ImageManager(new Driver());
     }
 
@@ -107,80 +109,94 @@ class ThumbnailService
      */
     protected function generateWithHuggingFace(string $slug, string $title, string $content, string $category, ?int $blogId = null): ?string
     {
-        if (empty($this->hfToken)) {
-            Log::warning("HUGGINGFACE_API_KEY not configured for thumbnail generation.");
+        // Try with primary key first, then fallback
+        $tokens = array_filter([$this->hfToken, $this->hfTokenFallback]);
+        
+        if (empty($tokens)) {
+            Log::warning("No HUGGINGFACE_API_KEY configured for thumbnail generation.");
             return null;
         }
 
-        $maxAttempts = 3;
-        $attempt = 0;
-        
-        while ($attempt < $maxAttempts) {
-            try {
-                // Extract topic elements for prompt enhancement
-                $topicElements = $this->extractTopicElements($content);
-                $elementsText = !empty($topicElements) ? implode(', ', $topicElements) : 'abstract tech design';
-                
-                // Build enhanced prompt for FLUX.1-schnell
-                $prompt = $this->buildHuggingFacePrompt($title, $category, $elementsText, $blogId);
-                
-                Log::info("Calling Hugging Face FLUX.1-schnell API (attempt " . ($attempt + 1) . ")");
-                
-                // Call Hugging Face Inference API (updated endpoint as of Dec 2024)
-                $response = Http::withOptions(['verify' => false])
-                    ->withHeaders([
-                        'Authorization' => 'Bearer ' . $this->hfToken,
-                    ])->timeout(60)->post('https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell', [
-                        'inputs' => $prompt,
-                    ]);
+        foreach ($tokens as $tokenIndex => $token) {
+            $tokenLabel = $tokenIndex === 0 ? 'primary' : 'fallback';
+            Log::info("Trying HuggingFace image generation with {$tokenLabel} key");
+            
+            $maxAttempts = 3;
+            $attempt = 0;
+            
+            while ($attempt < $maxAttempts) {
+                try {
+                    // Extract topic elements for prompt enhancement
+                    $topicElements = $this->extractTopicElements($content);
+                    $elementsText = !empty($topicElements) ? implode(', ', $topicElements) : 'abstract tech design';
+                    
+                    // Build enhanced prompt for FLUX.1-schnell
+                    $prompt = $this->buildHuggingFacePrompt($title, $category, $elementsText, $blogId);
+                    
+                    Log::info("Calling Hugging Face FLUX.1-schnell API ({$tokenLabel} key, attempt " . ($attempt + 1) . ")");
+                    
+                    // Call Hugging Face Inference API (updated endpoint as of Dec 2024)
+                    $response = Http::withOptions(['verify' => false])
+                        ->withHeaders([
+                            'Authorization' => 'Bearer ' . $token,
+                        ])->timeout(60)->post('https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell', [
+                            'inputs' => $prompt,
+                        ]);
 
-                if ($response->successful()) {
-                    // Response is binary image data
-                    $imageData = $response->body();
-                    
-                    if (empty($imageData)) {
-                        Log::error("Hugging Face returned empty image data");
-                        $attempt++;
-                        sleep(2); // Wait before retry
-                        continue;
-                    }
-                    
-                    // Convert to WebP and resize
-                    $thumbnailPath = $this->processHuggingFaceImage($imageData, $slug, $blogId);
-                    
-                    if ($thumbnailPath) {
-                        Log::info("Hugging Face thumbnail generated successfully: $thumbnailPath");
-                        return $thumbnailPath;
-                    }
-                } else {
-                    $status = $response->status();
-                    $body = $response->body();
-                    
-                    Log::error("Hugging Face API request failed. Status: $status, Body: " . substr($body, 0, 500));
-                    
-                    // Check if it's a rate limit or model loading error
-                    if ($status === 503) {
-                        Log::info("Model is loading, waiting 20 seconds before retry...");
-                        sleep(20);
-                    } elseif ($status === 429) {
-                        Log::warning("Hugging Face rate limit exceeded");
-                        return null; // Don't retry on rate limit
-                    } elseif ($status === 402) {
-                        Log::warning("Hugging Face quota exceeded (Payment Required). using SVG default.");
-                        return null; // Don't retry, immediate fallback
+                    if ($response->successful()) {
+                        // Response is binary image data
+                        $imageData = $response->body();
+                        
+                        if (empty($imageData)) {
+                            Log::error("Hugging Face ({$tokenLabel} key) returned empty image data");
+                            $attempt++;
+                            sleep(2); // Wait before retry
+                            continue;
+                        }
+                        
+                        // Convert to WebP and resize
+                        $thumbnailPath = $this->processHuggingFaceImage($imageData, $slug, $blogId);
+                        
+                        if ($thumbnailPath) {
+                            Log::info("Hugging Face thumbnail generated successfully with {$tokenLabel} key: $thumbnailPath");
+                            return $thumbnailPath;
+                        }
                     } else {
-                        sleep(2); // Wait before retry for other errors
+                        $status = $response->status();
+                        $body = $response->body();
+                        
+                        Log::error("Hugging Face API ({$tokenLabel} key) request failed. Status: $status, Body: " . substr($body, 0, 500));
+                        
+                        // Check if it's a rate limit or model loading error
+                        if ($status === 503) {
+                            Log::info("Model is loading, waiting 20 seconds before retry...");
+                            sleep(20);
+                        } elseif ($status === 429) {
+                            Log::warning("Hugging Face ({$tokenLabel} key) rate limit exceeded");
+                            break; // Try next key
+                        } elseif ($status === 402) {
+                            Log::warning("Hugging Face ({$tokenLabel} key) quota exceeded (Payment Required).");
+                            break; // Try next key
+                        } else {
+                            sleep(2); // Wait before retry for other errors
+                        }
                     }
+                    
+                    $attempt++;
+                    
+                } catch (\Exception $e) {
+                    Log::error("Hugging Face ({$tokenLabel} key) generation attempt " . ($attempt + 1) . " exception: " . $e->getMessage());
+                    $attempt++;
+                    sleep(2);
                 }
-                
-                $attempt++;
-                
-            } catch (\Exception $e) {
-                Log::error("Hugging Face generation attempt " . ($attempt + 1) . " exception: " . $e->getMessage());
-                $attempt++;
-                sleep(2);
             }
+            
+            Log::warning("All attempts exhausted for {$tokenLabel} HuggingFace key");
         }
+        
+        Log::warning("All HuggingFace API keys exhausted for thumbnail generation");
+        return null;
+    }
         
         return null;
     }
