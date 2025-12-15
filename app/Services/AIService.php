@@ -229,7 +229,7 @@ Begin writing the blog post now:";
         return $content;
     }
 
-    public function injectSmartLinks(string $content): string
+    public function injectSmartLinks(string $content): array
     {
         $prompt = "You are an SEO Editor. 
 Task: Analyze the text and inject 2-3 external hyperlinks to authoritative sources (Wikipedia, Major News, Edu/Gov sites) for key terms.
@@ -249,19 +249,22 @@ Content:
                     'contents' => [['parts' => [['text' => $prompt]]]]
                 ]);
             
-             if ($response->successful()) {
+            if ($response->successful()) {
                 $data = $response->json();
                  $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
                  // Cleanup
                 $text = str_replace('```html', '', $text);
                 $text = str_replace('```', '', $text);
-                return trim($text) ?: $content;
+                $resultContent = trim($text) ?: $content;
+                
+                return ['content' => $resultContent, 'error' => null];
+            } else {
+                 return ['content' => $content, 'error' => "API Error: " . $response->status() . " " . $response->body()];
             }
         } catch (\Exception $e) {
             Log::error("Link injection failed: " . $e->getMessage());
+            return ['content' => $content, 'error' => "Exception: " . $e->getMessage()];
         }
-        
-        return $content;
     }
 
     protected function expandContent(string $content, string $topic, string $systemPrompt): string

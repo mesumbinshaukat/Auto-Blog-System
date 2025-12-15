@@ -144,13 +144,19 @@ class BlogGeneratorService
         if ($externalCount < 2) {
              // Retroactive Link Injection via AI
              // This is expensive/slow, but required for "Fix" command to actually work on old blogs.
-             $contentWithLinks = $this->ai->injectSmartLinks($content);
+             $injectionResult = $this->ai->injectSmartLinks($content);
+             
+             if ($injectionResult['error']) {
+                 $linkLogs[] = "AI Injection Failed: " . $injectionResult['error'];
+             }
+             
+             $contentWithLinks = $injectionResult['content'];
              
              // Validate AGAIN to ensure AI didn't add junk
              $cleanedData = $this->validateAndCleanLinks($contentWithLinks);
              $content = $cleanedData['html'];
              $externalCount = $cleanedData['count'];
-             // Merge logs?
+             // Merge logs
              $linkLogs = array_merge($linkLogs, $cleanedData['logs'] ?? []);
         }
 

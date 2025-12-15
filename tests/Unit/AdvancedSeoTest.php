@@ -37,9 +37,10 @@ class AdvancedSeoTest extends TestCase
         ';
         
         // Mock AI to return content with links
-        $ai->shouldReceive('injectSmartLinks')->andReturn(
-            str_replace('https://example.com', 'https://example.com', $inputHtml) . '<a href="https://example.org">Injected</a>'
-        );
+        $ai->shouldReceive('injectSmartLinks')->andReturn([
+            'content' => str_replace('https://example.com', 'https://example.com', $inputHtml) . '<a href="https://example.org">Injected</a>',
+            'error' => null
+        ]);
         // Note: The service calls validate again, so we need to ensure the injected link is valid valid or mocking works.
         // But validateAndCleanLinks performs REAL HEAD request or HEADLESS check. 
         // 'injected.com' might fail real check.
