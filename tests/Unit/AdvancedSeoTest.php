@@ -20,8 +20,9 @@ class AdvancedSeoTest extends TestCase
         $ai = Mockery::mock(\App\Services\AIService::class);
         $thumb = Mockery::mock(\App\Services\ThumbnailService::class);
         $sanitizer = Mockery::mock(\App\Services\TitleSanitizerService::class);
+        $linkDiscovery = Mockery::mock(\App\Services\LinkDiscoveryService::class);
         
-        $service = new BlogGeneratorService($scraper, $ai, $thumb, $sanitizer);
+        $service = new BlogGeneratorService($scraper, $ai, $thumb, $sanitizer, $linkDiscovery);
         
         $category = Category::factory()->create();
         
@@ -29,6 +30,7 @@ class AdvancedSeoTest extends TestCase
         Blog::factory()->count(3)->create(['category_id' => $category->id]);
         
         $inputHtml = '
+            <h1>Test Blog Title</h1>
             <p>Intro paragraph text here.</p>
             <p>Second paragraph text.</p>
             <p>Third paragraph text.</p>
@@ -36,16 +38,12 @@ class AdvancedSeoTest extends TestCase
             <p>Bad link <a href="http://invalid-link-12345.com">Bad</a>.</p>
         ';
         
-        // Mock AI to return content with links
-        $ai->shouldReceive('injectSmartLinks')->andReturn([
-            'content' => str_replace('https://example.com', 'https://example.com', $inputHtml) . '<a href="https://example.org">Injected</a>',
-            'error' => null
+        // Mock AI scoring (won't be called since we have 1 external link already)
+        $ai->shouldReceive('scoreLinkRelevance')->andReturn([
+            'score' => 80,
+            'anchor' => 'Test Anchor',
+            'reason' => 'Relevant content'
         ]);
-        // Note: The service calls validate again, so we need to ensure the injected link is valid valid or mocking works.
-        // But validateAndCleanLinks performs REAL HEAD request or HEADLESS check. 
-        // 'injected.com' might fail real check.
-        // We should use a real URL in mock or ensure it passes.
-        // Let's use example.com again.
         
         $result = $service->processSeoLinks($inputHtml, $category);
         $output = $result['html'];

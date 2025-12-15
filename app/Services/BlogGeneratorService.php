@@ -13,18 +13,21 @@ class BlogGeneratorService
     protected $ai;
     protected $thumbnailService;
     protected $titleSanitizer;
+    protected $linkDiscovery;
 
     public function __construct(
         ScrapingService $scraper, 
         AIService $ai, 
         \App\Services\ThumbnailService $thumbnailService,
-        TitleSanitizerService $titleSanitizer
+        TitleSanitizerService $titleSanitizer,
+        LinkDiscoveryService $linkDiscovery
     )
     {
         $this->scraper = $scraper;
         $this->ai = $ai;
         $this->thumbnailService = $thumbnailService;
         $this->titleSanitizer = $titleSanitizer;
+        $this->linkDiscovery = $linkDiscovery;
     }
 
     public function generateBlogForCategory(Category $category, ?callable $onProgress = null)
@@ -134,38 +137,145 @@ class BlogGeneratorService
         return $blog;
     }
 
-    public function processSeoLinks(string $content, Category $category): array
+    /**
+     * Count existing links in HTML content
+     * 
+     * @param string $html
+     * @return array ['internal' => int, 'external' => int, 'total' => int, 'urls' => array]
+     */
+    protected function countExistingLinks(string $html): array
     {
-        // 1. Validate & Clean External Links
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $links = $dom->getElementsByTagName('a');
+        $internal = 0;
+        $external = 0;
+        $urls = [];
+
+        $siteUrl = config('app.url');
+
+        foreach ($links as $link) {
+            $href = $link->getAttribute('href');
+            
+            if (empty($href) || $href === '#') {
+                continue;
+            }
+
+            $urls[] = $href;
+
+            // Check if internal (starts with / or site URL)
+            if (str_starts_with($href, '/') || str_starts_with($href, $siteUrl)) {
+                $internal++;
+            } else {
+                $external++;
+            }
+        }
+
+        return [
+            'internal' => $internal,
+            'external' => $external,
+            'total' => $internal + $external,
+            'urls' => $urls
+        ];
+    }
+
+    public function processSeoLinks(string $content, Category $category, array $options = []): array
+    {
+        $linkLogs = [];
+        
+        // 0. Count existing links
+        $linkStats = $this->countExistingLinks($content);
+        $linkLogs[] = "Existing links: {$linkStats['internal']} internal, {$linkStats['external']} external, {$linkStats['total']} total";
+        
+        // 1. Check if we should skip (over-linked)
+        if ($linkStats['internal'] > 3) {
+            $linkLogs[] = "Skipped: Sufficient internal links ({$linkStats['internal']})";
+            return [
+                'html' => $content,
+                'external_count' => $linkStats['external'],
+                'internal_count' => $linkStats['internal'],
+                'logs' => $linkLogs,
+                'skipped' => true
+            ];
+        }
+
+        if ($linkStats['total'] >= 8) {
+            $linkLogs[] = "Skipped: Total links at maximum ({$linkStats['total']})";
+            return [
+                'html' => $content,
+                'external_count' => $linkStats['external'],
+                'internal_count' => $linkStats['internal'],
+                'logs' => $linkLogs,
+                'skipped' => true
+            ];
+        }
+
+        // 2. Validate & Clean existing external links
         $cleanedData = $this->validateAndCleanLinks($content);
         $content = $cleanedData['html'];
         $externalCount = $cleanedData['count'];
-        $linkLogs = $cleanedData['logs'] ?? [];
-        if ($externalCount < 2) {
-             // Retroactive Link Injection via AI
-             // This is expensive/slow, but required for "Fix" command to actually work on old blogs.
-             $injectionResult = $this->ai->injectSmartLinks($content);
-             
-             if ($injectionResult['error']) {
-                 $linkLogs[] = "AI Injection Failed: " . $injectionResult['error'];
-             }
-             
-             $contentWithLinks = $injectionResult['content'];
-             
-             // Validate AGAIN to ensure AI didn't add junk
-             $cleanedData = $this->validateAndCleanLinks($contentWithLinks);
-             $content = $cleanedData['html'];
-             $externalCount = $cleanedData['count'];
-             // Merge logs
-             $linkLogs = array_merge($linkLogs, $cleanedData['logs'] ?? []);
+        $linkLogs = array_merge($linkLogs, $cleanedData['logs'] ?? []);
+
+        // 3. Discover and add external links if needed
+        if ($externalCount < 1 && !($options['skip_external'] ?? false)) {
+            $linkLogs[] = "Discovering external links (current: $externalCount)";
+            
+            // Get topic from content (extract from first H1)
+            $topic = $this->extractTopicFromContent($content);
+            
+            if ($topic) {
+                // Discover candidate URLs
+                $candidateUrls = $this->linkDiscovery->discoverLinks($topic, $category->name);
+                $linkLogs[] = "Found " . count($candidateUrls) . " candidate URLs";
+
+                $addedLinks = 0;
+                $maxToAdd = min(3, 8 - $linkStats['total']);
+
+                foreach ($candidateUrls as $url) {
+                    if ($addedLinks >= $maxToAdd) {
+                        break;
+                    }
+
+                    // Skip if URL already exists
+                    if (in_array($url, $linkStats['urls'])) {
+                        $linkLogs[] = "Skipped duplicate: $url";
+                        continue;
+                    }
+
+                    // Extract snippet
+                    $snippet = $this->linkDiscovery->extractSnippet($url);
+                    
+                    if (!$snippet) {
+                        $linkLogs[] = "Skipped (no snippet): $url";
+                        continue;
+                    }
+
+                    // Score relevance with AI
+                    $relevance = $this->ai->scoreLinkRelevance($topic, $url, $snippet);
+                    
+                    if ($relevance['score'] >= 75) {
+                        // Insert link
+                        $anchor = $relevance['anchor'] ?: $this->linkDiscovery->extractTitle($url) ?: 'Read more';
+                        $content = $this->insertExternalLink($content, $url, $anchor);
+                        $addedLinks++;
+                        $linkLogs[] = "Added external link (score: {$relevance['score']}): $url";
+                    } else {
+                        $linkLogs[] = "Skipped (low score {$relevance['score']}): $url - {$relevance['reason']}";
+                    }
+                }
+
+                $externalCount += $addedLinks;
+            }
         }
 
-        // 2. Insert Internal Links if room
-        $externalLinkCount = $externalCount; // Use the updated count
-        $limitInternal = min(3, 8 - $externalLinkCount);
-        $internalCount = 0;
+        // 4. Insert Internal Links if room
+        $limitInternal = min(3, 8 - $externalCount - $linkStats['internal']);
+        $internalCount = $linkStats['internal'];
         
-        if ($limitInternal > 0) {
+        if ($limitInternal > 0 && !($options['skip_internal'] ?? false)) {
             $relatedBlogs = Blog::where('category_id', $category->id)
                 ->where('id', '!=', $category->id)
                 ->latest()
@@ -175,7 +285,7 @@ class BlogGeneratorService
             if ($relatedBlogs->count() > 0) {
                  $internalData = $this->insertInternalLinks($content, $relatedBlogs);
                  $content = $internalData['html'];
-                 $internalCount = $internalData['count'];
+                 $internalCount += $internalData['count'];
             }
         }
         
@@ -183,8 +293,60 @@ class BlogGeneratorService
             'html' => $content,
             'external_count' => $externalCount,
             'internal_count' => $internalCount,
-            'logs' => $linkLogs
+            'logs' => $linkLogs,
+            'skipped' => false
         ];
+    }
+
+    /**
+     * Extract topic from content (first H1)
+     */
+    protected function extractTopicFromContent(string $html): ?string
+    {
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $h1 = $dom->getElementsByTagName('h1');
+        if ($h1->length > 0) {
+            return $h1->item(0)->textContent;
+        }
+
+        return null;
+    }
+
+    /**
+     * Insert external link into content
+     */
+    protected function insertExternalLink(string $html, string $url, string $anchor): string
+    {
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        // Find a suitable paragraph to insert after
+        $paragraphs = $dom->getElementsByTagName('p');
+        
+        if ($paragraphs->length > 2) {
+            // Insert after 2nd or 3rd paragraph
+            $targetIndex = min(2, $paragraphs->length - 1);
+            $targetPara = $paragraphs->item($targetIndex);
+            
+            // Create link element
+            $link = $dom->createElement('a', $anchor);
+            $link->setAttribute('href', $url);
+            $link->setAttribute('rel', 'dofollow');
+            $link->setAttribute('target', '_blank');
+            
+            // Append to paragraph
+            $targetPara->appendChild($dom->createTextNode(' '));
+            $targetPara->appendChild($link);
+        }
+
+        $result = $dom->saveHTML();
+        return str_replace('<?xml encoding="utf-8" ?>', '', $result);
     }
 
     protected function insertInternalLinks(string $html, $relatedBlogs): array

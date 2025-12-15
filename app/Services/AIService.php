@@ -162,6 +162,66 @@ class AIService
         return [Str::title($topic)];
     }
 
+    /**
+     * Score link relevance using AI
+     * 
+     * @param string $topic Blog topic
+     * @param string $url URL to score
+     * @param string $snippet Content snippet from URL
+     * @return array ['score' => int, 'anchor' => string, 'reason' => string]
+     */
+    public function scoreLinkRelevance(string $topic, string $url, string $snippet): array
+    {
+        $prompt = "Score the relevance of this external source to a blog post about \"$topic\" on a scale of 0-100.
+
+URL: $url
+Snippet: $snippet
+
+Provide your response in this exact format:
+SCORE: [number 0-100]
+ANCHOR: [suggested anchor text if score >75, otherwise 'N/A']
+REASON: [brief explanation]";
+
+        $result = $this->callGeminiWithFallback($prompt);
+        
+        if ($result['success']) {
+            $text = $result['data'];
+            
+            // Parse response
+            $score = 0;
+            $anchor = '';
+            $reason = '';
+            
+            if (preg_match('/SCORE:\s*(\d+)/', $text, $matches)) {
+                $score = (int)$matches[1];
+            }
+            
+            if (preg_match('/ANCHOR:\s*(.+?)(?:\n|REASON:)/s', $text, $matches)) {
+                $anchor = trim($matches[1]);
+                if ($anchor === 'N/A') {
+                    $anchor = '';
+                }
+            }
+            
+            if (preg_match('/REASON:\s*(.+)/s', $text, $matches)) {
+                $reason = trim($matches[1]);
+            }
+            
+            return [
+                'score' => $score,
+                'anchor' => $anchor,
+                'reason' => $reason
+            ];
+        }
+        
+        // Fallback: basic scoring
+        return [
+            'score' => 0,
+            'anchor' => '',
+            'reason' => 'AI scoring unavailable'
+        ];
+    }
+
     protected function buildSystemPrompt(): string
     {
         return "You are a professional blog writer and AISEO expert. Generate comprehensive, E-E-A-T optimized, and human-like blog posts in HTML format.
