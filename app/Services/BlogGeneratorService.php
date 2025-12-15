@@ -121,6 +121,15 @@ class BlogGeneratorService
             $finalContent = $optimizedData['content'];
             $toc = $optimizedData['toc'];
             
+            // 5b. AI Artifact Cleanup
+            $logs[] = "Cleaning up AI artifacts...";
+            try {
+                $finalContent = $this->ai->cleanupAIArtifacts($finalContent, $topic);
+            } catch (\Exception $e) {
+                Log::warning("Artifact cleanup failed: " . $e->getMessage());
+                // Proceed with uncleaned content
+            }
+            
             // 6. Validate content
             $wordCount = str_word_count(strip_tags($finalContent));
             Log::info("Blog generated: $wordCount words");

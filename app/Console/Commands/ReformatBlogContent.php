@@ -62,6 +62,12 @@ class ReformatBlogContent extends Command
                 $optimizedData = $this->aiService->optimizeAndHumanize($blog->content);
                 $newContent = $optimizedData['content'];
                 $toc = $optimizedData['toc'];
+                
+                // Extract "topic" somewhat from title for cleanup context
+                // Typically title is "Deep Dive: [Topic]" or similar
+                $topic = $blog->title; // Use full title as proxy for topic
+
+                $newContent = $this->aiService->cleanupAIArtifacts($newContent, $topic);
 
                 $blog->update([
                     'content' => $newContent,

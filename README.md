@@ -61,26 +61,28 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
   - **Triple-Layer API Fallback**:
     - **Layer 1**: HuggingFace Primary → HuggingFace Fallback (all models)
     - **Layer 2**: Gemini Primary → Gemini Fallback
-    - **Layer 3**: OpenRouter (deepseek → mistral → hermes free models)
+    - **Layer 3**: OpenRouter (deepseek → mistral → hermes)
     - Exponential backoff for 429 rate limits (2^attempt seconds)
-  - **Smart Research Fallback**: Wikipedia API → Serper Google Search → Knowledge Base
+  - **Smart Topic Management**:
+    - **Robust De-Duplication**: Retries topic selection up to 10 times if duplicates are found.
+    - **Fail-Safe Fallback**: Switches to static fallback topics if all RSS sources (updated for 2025) fail.
+  - **Unified Reporting System**:
+    - Comprehensive email reports for **Success**, **Failure**, and **Duplicate** outcomes.
+    - Includes execution logs, stack traces, and direct links.
   - **Autonomous Error Recovery**:
     - Job retry with backoff delays: 60s, 300s, 600s
     - Auto-detects quota errors (402/429) and delays re-queue
-    - Email notifications at attempt 3+ for quota/critical failures
-  - **Enhanced Content Quality**:
-    - "JUICY" content prompts: vivid descriptions, real examples, enthusiasm
-    - Conversational tone with rhetorical questions
-    - Case studies and statistics integration
 
 - **🆕 Custom Prompt Feature** (v2.0):
   - **Admin UI**: Add specific instructions via custom prompt field (max 2000 chars)
-  - **Use Cases**:
-    - Comparisons: "Compare React vs Vue for beginners"
-    - URL Integration: "Include data from https://example.com"
-    - Focus Areas: "Write for small business owners"
-    - Style Control: "Use beginner-friendly language"
-  - **Smart Handling**: Auto-truncation, validation, optional field
+  - **Smart Scraping**: Auto-detects URLs in prompt, scrapes content, and injects it as context.
+  - **Use Cases**: Comparisons, Summarizing specific articles, Targeted stylistic changes.
+
+- **🆕 AI Artifact Cleanup** (v2.0):
+  - **Humanization Engine**: Post-processing step to remove robotic patterns.
+  - **Pattern Removal**: Strips "In conclusion", "To sum up", and repetitive bolding (e.g., "**Topic** is...").
+  - **Bold Limiter**: Enforces intelligent bold tag limits (5/1000 words) for natural readability.
+  - **Retroactive Fixes**: `php artisan blog:reformat` command to clean existing blogs.
 
 ## 🛠 Tech Stack
 
@@ -218,6 +220,16 @@ The system includes a service to clean malformed HTML entities from blog titles 
 php artisan blog:fix-titles
 ```
 *Note: This runs daily via the scheduler.*
+
+### AI Content Cleanup (Artifact Removal)
+To retroactively clean up robotic phrases ("In conclusion") and excessive bolding from existing blogs:
+```bash
+# Clean all blogs
+php artisan blog:reformat
+
+# Clean specific blog
+php artisan blog:reformat 123
+```
 
 ### Enhanced SEO Fixes & Retrofitting
 To retroactively fix SEO meta tags, validate external links, and inject missing internal links for existing blogs:
