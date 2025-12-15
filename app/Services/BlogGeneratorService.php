@@ -190,90 +190,122 @@ class BlogGeneratorService
         $linkStats = $this->countExistingLinks($content);
         $linkLogs[] = "Existing links: {$linkStats['internal']} internal, {$linkStats['external']} external, {$linkStats['total']} total";
         
-        // 1. Check if we should skip (over-linked)
-        if ($linkStats['internal'] > 3) {
-            $linkLogs[] = "Skipped: Sufficient internal links ({$linkStats['internal']})";
-            return [
-                'html' => $content,
-                'external_count' => $linkStats['external'],
-                'internal_count' => $linkStats['internal'],
-                'logs' => $linkLogs,
-                'skipped' => true
-            ];
+        // 1. Remove excess internal links if > 4
+        if ($linkStats['internal'] > 4) {
+            $linkLogs[] = "Removing excess internal links ({$linkStats['internal']} -> 4)";
+            $content = $this->removeExcessInternalLinks($content, 4);
+            $linkStats = $this->countExistingLinks($content);
+            $linkLogs[] = "After removal: {$linkStats['internal']} internal, {$linkStats['external']} external";
         }
 
-        if ($linkStats['total'] >= 8) {
-            $linkLogs[] = "Skipped: Total links at maximum ({$linkStats['total']})";
-            return [
-                'html' => $content,
-                'external_count' => $linkStats['external'],
-                'internal_count' => $linkStats['internal'],
-                'logs' => $linkLogs,
-                'skipped' => true
-            ];
+        // 2. Remove excess external links if > 3
+        if ($linkStats['external'] > 3) {
+            $linkLogs[] = "Removing excess external links ({$linkStats['external']} -> 3)";
+            $content = $this->removeExcessExternalLinks($content, 3);
+            $linkStats = $this->countExistingLinks($content);
+            $linkLogs[] = "After removal: {$linkStats['internal']} internal, {$linkStats['external']} external";
         }
 
-        // 2. Validate & Clean existing external links
+        // 3. Validate & Clean existing external links
         $cleanedData = $this->validateAndCleanLinks($content);
         $content = $cleanedData['html'];
         $externalCount = $cleanedData['count'];
         $linkLogs = array_merge($linkLogs, $cleanedData['logs'] ?? []);
 
-        // 3. Discover and add external links if needed
+        // 4. Discover and add external links if needed
         if ($externalCount < 1 && !($options['skip_external'] ?? false)) {
             $linkLogs[] = "Discovering external links (current: $externalCount)";
             
-            // Get topic from content (extract from first H1)
-            $topic = $this->extractTopicFromContent($content);
-            
-            if ($topic) {
-                // Discover candidate URLs
-                $candidateUrls = $this->linkDiscovery->discoverLinks($topic, $category->name);
-                $linkLogs[] = "Found " . count($candidateUrls) . " candidate URLs";
-
-                $addedLinks = 0;
-                $maxToAdd = min(3, 8 - $linkStats['total']);
-
-                foreach ($candidateUrls as $url) {
-                    if ($addedLinks >= $maxToAdd) {
-                        break;
-                    }
-
-                    // Skip if URL already exists
-                    if (in_array($url, $linkStats['urls'])) {
-                        $linkLogs[] = "Skipped duplicate: $url";
-                        continue;
-                    }
-
-                    // Extract snippet
-                    $snippet = $this->linkDiscovery->extractSnippet($url);
+            try {
+                // Get topic from content (extract from first H1)
+                $topic = $this->extractTopicFromContent($content);
+                
+                if (!$topic) {
+                    $linkLogs[] = "ERROR: Could not extract topic from content";
+                } else {
+                    $linkLogs[] = "Topic extracted: $topic";
                     
-                    if (!$snippet) {
-                        $linkLogs[] = "Skipped (no snippet): $url";
-                        continue;
+                    // Discover candidate URLs
+                    $candidateUrls = $this->linkDiscovery->discoverLinks($topic, $category->name);
+                    $linkLogs[] = "Found " . count($candidateUrls) . " candidate URLs";
+
+                    $addedLinks = 0;
+                    $maxToAdd = min(3, 7 - $linkStats['total']); // Max 7 total (4 internal + 3 external)
+
+                    foreach ($candidateUrls as $url) {
+                        if ($addedLinks >= $maxToAdd) {
+                            break;
+                        }
+
+                        // Skip if URL already exists
+                        if (in_array($url, $linkStats['urls'])) {
+                            $linkLogs[] = "Skipped duplicate: $url";
+                            continue;
+                        }
+
+                        // Extract snippet
+                        try {
+                            $snippet = $this->linkDiscovery->extractSnippet($url);
+                            
+                            if (!$snippet) {
+                                $linkLogs[] = "Skipped (no snippet): $url";
+                                continue;
+                            }
+
+                            $linkLogs[] = "Snippet extracted (" . strlen($snippet) . " chars) from: $url";
+
+                            // Score relevance with AI
+                            try {
+                                $relevance = $this->ai->scoreLinkRelevance($topic, $url, $snippet);
+                                $linkLogs[] = "AI Score: {$relevance['score']} for $url - {$relevance['reason']}";
+                                
+                                if ($relevance['score'] >= 75) {
+                                    // Insert link
+                                    $anchor = $relevance['anchor'] ?: $this->linkDiscovery->extractTitle($url) ?: 'Read more';
+                                    $content = $this->insertExternalLink($content, $url, $anchor);
+                                    $addedLinks++;
+                                    $externalCount++;
+                                    $linkLogs[] = "✓ Added external link (score: {$relevance['score']}): $url";
+                                } else if ($relevance['score'] === 0 && $addedLinks === 0) {
+                                    // Fallback: If AI fails and we have no links yet, add anyway
+                                    $anchor = $this->linkDiscovery->extractTitle($url) ?: 'Read more';
+                                    $content = $this->insertExternalLink($content, $url, $anchor);
+                                    $addedLinks++;
+                                    $externalCount++;
+                                    $linkLogs[] = "✓ Added external link (AI fallback): $url";
+                                } else {
+                                    $linkLogs[] = "Skipped (low score {$relevance['score']}): $url";
+                                }
+                            } catch (\Exception $e) {
+                                $linkLogs[] = "ERROR scoring link: " . $e->getMessage();
+                                // Fallback: add first link anyway if we have none
+                                if ($addedLinks === 0) {
+                                    $anchor = $this->linkDiscovery->extractTitle($url) ?: 'Read more';
+                                    $content = $this->insertExternalLink($content, $url, $anchor);
+                                    $addedLinks++;
+                                    $externalCount++;
+                                    $linkLogs[] = "✓ Added external link (exception fallback): $url";
+                                }
+                            }
+                        } catch (\Exception $e) {
+                            $linkLogs[] = "ERROR extracting snippet from $url: " . $e->getMessage();
+                        }
                     }
 
-                    // Score relevance with AI
-                    $relevance = $this->ai->scoreLinkRelevance($topic, $url, $snippet);
-                    
-                    if ($relevance['score'] >= 75) {
-                        // Insert link
-                        $anchor = $relevance['anchor'] ?: $this->linkDiscovery->extractTitle($url) ?: 'Read more';
-                        $content = $this->insertExternalLink($content, $url, $anchor);
-                        $addedLinks++;
-                        $linkLogs[] = "Added external link (score: {$relevance['score']}): $url";
-                    } else {
-                        $linkLogs[] = "Skipped (low score {$relevance['score']}): $url - {$relevance['reason']}";
+                    if ($addedLinks === 0) {
+                        $linkLogs[] = "WARNING: No external links added despite discovery attempt";
                     }
                 }
-
-                $externalCount += $addedLinks;
+            } catch (\Exception $e) {
+                $linkLogs[] = "ERROR in external link discovery: " . $e->getMessage();
+                Log::error("External link discovery failed: " . $e->getMessage());
             }
         }
 
-        // 4. Insert Internal Links if room
-        $limitInternal = min(3, 8 - $externalCount - $linkStats['internal']);
-        $internalCount = $linkStats['internal'];
+        // 5. Insert Internal Links if room
+        $currentStats = $this->countExistingLinks($content);
+        $limitInternal = min(4 - $currentStats['internal'], 7 - $currentStats['total']);
+        $internalCount = $currentStats['internal'];
         
         if ($limitInternal > 0 && !($options['skip_internal'] ?? false)) {
             $relatedBlogs = Blog::where('category_id', $category->id)
@@ -296,6 +328,87 @@ class BlogGeneratorService
             'logs' => $linkLogs,
             'skipped' => false
         ];
+    }
+
+    /**
+     * Remove excess internal links, keeping only the first N
+     */
+    protected function removeExcessInternalLinks(string $html, int $maxLinks): string
+    {
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $links = $dom->getElementsByTagName('a');
+        $siteUrl = config('app.url');
+        $internalCount = 0;
+        $linksToRemove = [];
+
+        foreach ($links as $link) {
+            $href = $link->getAttribute('href');
+            
+            // Check if internal
+            if (str_starts_with($href, '/') || str_starts_with($href, $siteUrl)) {
+                $internalCount++;
+                
+                // Mark for removal if exceeds limit
+                if ($internalCount > $maxLinks) {
+                    $linksToRemove[] = $link;
+                }
+            }
+        }
+
+        // Remove excess links
+        foreach ($linksToRemove as $link) {
+            // Replace link with just its text content
+            $textNode = $dom->createTextNode($link->textContent);
+            $link->parentNode->replaceChild($textNode, $link);
+        }
+
+        $result = $dom->saveHTML();
+        return str_replace('<?xml encoding="utf-8" ?>', '', $result);
+    }
+
+    /**
+     * Remove excess external links, keeping only the first N
+     */
+    protected function removeExcessExternalLinks(string $html, int $maxLinks): string
+    {
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $links = $dom->getElementsByTagName('a');
+        $siteUrl = config('app.url');
+        $externalCount = 0;
+        $linksToRemove = [];
+
+        foreach ($links as $link) {
+            $href = $link->getAttribute('href');
+            
+            // Check if external
+            if (!empty($href) && $href !== '#' && 
+                !str_starts_with($href, '/') && !str_starts_with($href, $siteUrl)) {
+                $externalCount++;
+                
+                // Mark for removal if exceeds limit
+                if ($externalCount > $maxLinks) {
+                    $linksToRemove[] = $link;
+                }
+            }
+        }
+
+        // Remove excess links
+        foreach ($linksToRemove as $link) {
+            // Replace link with just its text content
+            $textNode = $dom->createTextNode($link->textContent);
+            $link->parentNode->replaceChild($textNode, $link);
+        }
+
+        $result = $dom->saveHTML();
+        return str_replace('<?xml encoding="utf-8" ?>', '', $result);
     }
 
     /**

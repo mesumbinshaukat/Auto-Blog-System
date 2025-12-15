@@ -10,7 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "guzzlehttp/guzzle": "*",
+        "guzzlehttp/guzzle": "^7.10",
         "intervention/image": "^3.11",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.2",
@@ -18,8 +18,8 @@
         "livewire/livewire": "^3.7",
         "spatie/laravel-cookie-consent": "^3.3",
         "spatie/laravel-sitemap": "^7.3",
-        "symfony/css-selector": "*",
-        "symfony/dom-crawler": "*"
+        "symfony/css-selector": "^7.4",
+        "symfony/dom-crawler": "^7.4"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
