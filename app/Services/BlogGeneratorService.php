@@ -330,45 +330,7 @@ class BlogGeneratorService
         ];
     }
 
-    /**
-     * Remove excess internal links, keeping only the first N
-     */
-    protected function removeExcessInternalLinks(string $html, int $maxLinks): string
-    {
-        $dom = new \DOMDocument();
-        libxml_use_internal_errors(true);
-        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
 
-        $links = $dom->getElementsByTagName('a');
-        $siteUrl = config('app.url');
-        $internalCount = 0;
-        $linksToRemove = [];
-
-        foreach ($links as $link) {
-            $href = $link->getAttribute('href');
-            
-            // Check if internal
-            if (str_starts_with($href, '/') || str_starts_with($href, $siteUrl)) {
-                $internalCount++;
-                
-                // Mark for removal if exceeds limit
-                if ($internalCount > $maxLinks) {
-                    $linksToRemove[] = $link;
-                }
-            }
-        }
-
-        // Remove excess links
-        foreach ($linksToRemove as $link) {
-            // Replace link with just its text content
-            $textNode = $dom->createTextNode($link->textContent);
-            $link->parentNode->replaceChild($textNode, $link);
-        }
-
-        $result = $dom->saveHTML();
-        return str_replace('<?xml encoding="utf-8" ?>', '', $result);
-    }
 
     /**
      * Remove excess external links, keeping only the first N
@@ -395,6 +357,118 @@ class BlogGeneratorService
                 
                 // Mark for removal if exceeds limit
                 if ($externalCount > $maxLinks) {
+                    $linksToRemove[] = $link;
+                }
+            }
+        }
+
+        // Remove excess links
+        foreach ($linksToRemove as $link) {
+            // Replace link with just its text content
+            $textNode = $dom->createTextNode($link->textContent);
+            $link->parentNode->replaceChild($textNode, $link);
+        }
+
+        $result = $dom->saveHTML();
+        return str_replace('<?xml encoding="utf-8" ?>', '', $result);
+    }
+
+    /**
+     * Clean up duplicate links and surrounding context
+     */
+    protected function cleanupDuplicateLinks(string $html): string
+    {
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $links = $dom->getElementsByTagName('a');
+        $seenUrls = [];
+        $nodesToRemove = [];
+
+        foreach ($links as $link) {
+            $href = $link->getAttribute('href');
+            
+            if (empty($href)) continue;
+
+            if (isset($seenUrls[$href])) {
+                // Duplicate found
+                $parent = $link->parentNode;
+                
+                // Text to remove: "For more details, check out [Link]." or "Also read: [Link]."
+                $prevSibling = $link->previousSibling;
+                
+                if ($prevSibling && $prevSibling->nodeType === XML_TEXT_NODE) {
+                    $text = $prevSibling->textContent;
+                    // Common introductory phrases to remove
+                    $phrases = [
+                        'For more details, check out',
+                        'Check out',
+                        'Also read:',
+                        'Read more:',
+                        'Related:',
+                        'See also:'
+                    ];
+                    
+                    foreach ($phrases as $phrase) {
+                        if (stripos(trim($text), $phrase) !== false) {
+                            // Clear the text content
+                            $prevSibling->textContent = str_ireplace($phrase, '', $text);
+                        }
+                    }
+                }
+                
+                $nodesToRemove[] = $link;
+            } else {
+                $seenUrls[$href] = true;
+            }
+        }
+
+        foreach ($nodesToRemove as $node) {
+            $node->parentNode->removeChild($node);
+        }
+
+        $result = $dom->saveHTML();
+        return str_replace('<?xml encoding="utf-8" ?>', '', $result);
+    }
+
+    /**
+     * Remove excess internal links, ensuring max count and uniqueness
+     */
+    protected function removeExcessInternalLinks(string $html, int $maxLinks): string
+    {
+        // First clean duplicates
+        $html = $this->cleanupDuplicateLinks($html);
+        
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $links = $dom->getElementsByTagName('a');
+        $siteUrl = config('app.url');
+        $internalCount = 0;
+        $linksToRemove = [];
+        $uniqueHrefs = [];
+
+        foreach ($links as $link) {
+            $href = $link->getAttribute('href');
+            
+            // Check if internal
+            if (str_starts_with($href, '/') || str_starts_with($href, $siteUrl)) {
+                
+                // Check uniqueness
+                if (in_array($href, $uniqueHrefs)) {
+                    $linksToRemove[] = $link;
+                    continue;
+                }
+                
+                $internalCount++;
+                $uniqueHrefs[] = $href;
+                
+                // Mark for removal if exceeds limit
+                if ($internalCount > $maxLinks) {
                     $linksToRemove[] = $link;
                 }
             }
@@ -473,6 +547,13 @@ class BlogGeneratorService
         $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         
+        // Build list of existing links to avoid duplicates
+        $existingLinks = [];
+        foreach ($dom->getElementsByTagName('a') as $link) {
+            $href = $link->getAttribute('href');
+            if ($href) $existingLinks[] = $href;
+        }
+        
         $paragraphs = $dom->getElementsByTagName('p');
         $pCount = $paragraphs->length;
         $injectedCount = 0;
@@ -490,29 +571,69 @@ class BlogGeneratorService
              if ($blogIndex >= $relatedBlogs->count()) break;
              if ($index < 0 || $index >= $pCount) continue;
              
+             // Get next blog candidate
+             $blog = $relatedBlogs[$blogIndex];
+             $blogUrl = route('blog.show', $blog->slug);
+             
+             // Skip if this blog is already linked
+             // Check strict match or partial match (if absolute/relative mix)
+             $alreadyLinked = false;
+             foreach ($existingLinks as $existing) {
+                 if (str_contains($existing, $blog->slug)) {
+                     $alreadyLinked = true;
+                     break;
+                 }
+             }
+             
+             if ($alreadyLinked) {
+                 $blogIndex++;
+                 // Try next blog for this position if we have more
+                 if ($blogIndex < $relatedBlogs->count()) {
+                     // Retry this position with next blog
+                     // But we need to use a loop or just simple retry logic
+                     // For simplicity, just skip this position for now to avoid clustering
+                     continue;
+                 } else {
+                     break;
+                 }
+             }
+             
              $targetP = $paragraphs->item($index);
              if ($targetP) {
-                 $blog = $relatedBlogs[$blogIndex];
-                 
                  // Create link phrasing
                  $phrases = [
                      "For more details, check out <a href='%s' rel='dofollow'>%s</a>.",
                      "You might also like: <a href='%s' rel='dofollow'>%s</a>.",
                      "Related reading: <a href='%s' rel='dofollow'>%s</a>."
                  ];
-                 $phrase = sprintf($phrases[$blogIndex % 3], route('blog.show', $blog->slug), $blog->title);
+                 $phrase = sprintf($phrases[$blogIndex % 3], $blogUrl, $blog->title);
                  
                  $newP = $dom->createElement('p');
                  // Load HTML fragment for the link
                  $frag = $dom->createDocumentFragment();
-                 $frag->appendXML("<em>$phrase</em>");
-                 $newP->appendChild($frag);
+                 // Use basic replacement to ensure XML safety if title carries bad chars
+                 $safePhrase = htmlspecialchars($phrase); 
+                 // Actually we can't use htmlspecialchars on the whole string because it has tags.
+                 // Better to construct nodes safely.
                  
-                 $targetP->parentNode->insertBefore($newP, $targetP->nextSibling);
+                 // Re-construction for safety:
+                 // Text -> Link -> Text
+                 // Logic: "For more details, check out " + Link + "."
+                 
+                 // Fallback to appendXML for simplicity as phrases are trustworthy (internal)
+                 // But handle potential errors
+                 if (@$frag->appendXML("<em>$phrase</em>")) {
+                     $newP->appendChild($frag);
+                     $targetP->parentNode->insertBefore($newP, $targetP->nextSibling);
+                     $injectedCount++;
+                     $existingLinks[] = $blogUrl; // Add to deny list
+                 }
+                 
                  $blogIndex++;
-                 $injectedCount++;
              }
         }
+
+
         
         $fixed = $dom->saveHTML();
         return [

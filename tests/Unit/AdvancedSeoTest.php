@@ -75,4 +75,42 @@ class AdvancedSeoTest extends TestCase
             "Internal links were not injected. Output: " . substr($output, 0, 500)
         );
     }
+
+    public function test_deduplicate_links_and_cleanup()
+    {
+        // Mock deps
+        $scraper = Mockery::mock(\App\Services\ScrapingService::class);
+        $ai = Mockery::mock(\App\Services\AIService::class);
+        $thumb = Mockery::mock(\App\Services\ThumbnailService::class);
+        $sanitizer = Mockery::mock(\App\Services\TitleSanitizerService::class);
+        $linkDiscovery = Mockery::mock(\App\Services\LinkDiscoveryService::class);
+        
+        $service = new BlogGeneratorService($scraper, $ai, $thumb, $sanitizer, $linkDiscovery);
+        
+        // Input with duplicates and context text
+        $inputHtml = '
+            <p><a href="https://example.com/blog/1">Original Link</a></p>
+            <p>Some text.</p>
+            <p>For more details, check out <a href="https://example.com/blog/1">Duplicate Link</a>.</p>
+            <p>Also read: <a href="https://example.com/blog/1">Another Duplicate</a>.</p>
+            <p>Check out <a href="https://example.com/blog/2">Unique Link</a>.</p>
+        ';
+
+        // We can access protected method via reflection
+        $method = new \ReflectionMethod(BlogGeneratorService::class, 'cleanupDuplicateLinks');
+        $method->setAccessible(true);
+        
+        $cleaned = $method->invoke($service, $inputHtml);
+        
+        // Assertions
+        $this->assertEquals(1, substr_count($cleaned, 'https://example.com/blog/1'), 'Duplicate URL should exist only once');
+        $this->assertEquals(1, substr_count($cleaned, 'https://example.com/blog/2'), 'Unique URL should remain');
+        
+        // Context cleanup assertions
+        $this->assertStringNotContainsString('For more details, check out', $cleaned, 'Context phrase should be removed');
+        $this->assertStringNotContainsString('Also read:', $cleaned, 'Context phrase should be removed');
+        
+        // Ensure "Check out" for unique link remains
+        $this->assertStringContainsString('Check out', $cleaned, 'Context for unique link should remain');
+    }
 }
