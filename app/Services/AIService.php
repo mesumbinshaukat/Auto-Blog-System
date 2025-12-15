@@ -245,7 +245,8 @@ Content:
 
         try {
             $response = Http::withHeaders(['Content-Type' => 'application/json'])
-                ->post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}", [
+                ->timeout(30)
+                ->post("https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}", [
                     'contents' => [['parts' => [['text' => $prompt]]]]
                 ]);
             
