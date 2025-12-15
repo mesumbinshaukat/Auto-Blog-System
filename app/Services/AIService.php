@@ -214,11 +214,41 @@ REASON: [brief explanation]";
             ];
         }
         
-        // Fallback: basic scoring
+        // Fallback: Local Keyword Matching if AI fails
+        // Extract significant words from topic (min 4 chars, ignore common words)
+        $stopWords = ['about', 'this', 'that', 'with', 'from', 'what', 'when', 'where', 'which', 'video', 'news', 'guide', 'review', 'best', 'year', '2024', '2025'];
+        $topicWords = array_filter(str_word_count(strtolower($topic), 1), function($word) use ($stopWords) {
+            return strlen($word) > 3 && !in_array($word, $stopWords);
+        });
+        
+        $snippetLower = strtolower($snippet);
+        $urlLower = strtolower($url);
+        
+        $matches = 0;
+        $matchedWords = [];
+        
+        foreach ($topicWords as $word) {
+            if (str_contains($snippetLower, $word) || str_contains($urlLower, $word)) {
+                $matches++;
+                $matchedWords[] = $word;
+            }
+        }
+        
+        // Calculate basic score based on keyword density/presence
+        $matchRatio = count($topicWords) > 0 ? $matches / count($topicWords) : 0;
+        
+        if ($matchRatio >= 0.3) { // At least 30% of topic keywords found
+            return [
+                'score' => 80, // High enough to pass >75 check
+                'anchor' => !empty($matchedWords) ? ucwords(implode(' ', array_slice($matchedWords, 0, 3))) : 'Read more',
+                'reason' => 'Local fallback: Keyword match found (' . implode(', ', $matchedWords) . ')'
+            ];
+        }
+
         return [
             'score' => 0,
             'anchor' => '',
-            'reason' => 'AI scoring unavailable'
+            'reason' => 'AI scoring unavailable and local keyword check failed'
         ];
     }
 

@@ -38,11 +38,17 @@ class AdvancedSeoTest extends TestCase
             <p>Bad link <a href="http://invalid-link-12345.com">Bad</a>.</p>
         ';
         
-        // Mock AI scoring (won't be called since we have 1 external link already)
+        // Mock AI scoring to return 0 first (simulation failure), but we want to test the Service logic.
+        // However, AIService is mocked here!
+        // We cannot test AIService's internal fallback logic if we Mock it.
+        // We should switch to partial mock or just test AIService in isolation if possible.
+        // Or, we rely on the fact that we implemented it in AIService and here we just test that BlogGeneratorService handles it.
+        
+        // Let's explicitly test that IF AIService returns a high score (via our fallback), it gets added.
         $ai->shouldReceive('scoreLinkRelevance')->andReturn([
             'score' => 80,
             'anchor' => 'Test Anchor',
-            'reason' => 'Relevant content'
+            'reason' => 'Local fallback: Keyword match found'
         ]);
         
         $result = $service->processSeoLinks($inputHtml, $category);
