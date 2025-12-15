@@ -15,6 +15,7 @@ class Blog extends Model
         'title',
         'slug',
         'content',
+        'custom_prompt',
         'meta_title',
         'meta_description',
         'tags_json',

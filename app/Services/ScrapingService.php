@@ -224,9 +224,23 @@ class ScrapingService
                 }
             } else {
                 Log::warning("Wikipedia search returned no results for: $topic");
+                // Try web search fallback
+                $webSearchResult = $this->callWebSearch($topic);
+                if ($webSearchResult) {
+                    $researchData[] = $webSearchResult;
+                }
             }
         } catch (\Exception $e) {
             Log::warning("Wikipedia research failed: " . $e->getMessage());
+            // Try web search fallback on exception
+            try {
+                $webSearchResult = $this->callWebSearch($topic);
+                if ($webSearchResult) {
+                    $researchData[] = $webSearchResult;
+                }
+            } catch (\Exception $webEx) {
+                Log::warning("Web search fallback also failed: " . $webEx->getMessage());
+            }
         }
 
         // 2. Add more sources here in future (e.g. Bing Search API if key available)
@@ -234,6 +248,48 @@ class ScrapingService
         return !empty($researchData) 
             ? "Research findings:\n" . implode("\n\n", $researchData)
             : "No external research available. Please generate content based on general knowledge about this topic.";
+    }
+
+    /**
+     * Fallback web search using Serper API
+     */
+    protected function callWebSearch(string $query): ?string
+    {
+        $apiKey = env('SERPER_API_KEY');
+        if (empty($apiKey)) {
+            Log::info("SERPER_API_KEY not configured, skipping web search");
+            return null;
+        }
+
+        try {
+            Log::info("Attempting web search for: $query");
+            
+            $response = \Illuminate\Support\Facades\Http::withHeaders([
+                'X-API-KEY' => $apiKey,
+                'Content-Type' => 'application/json'
+            ])->timeout(10)->post('https://google.serper.dev/search', [
+                'q' => $query,
+                'num' => 1
+            ]);
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                $snippet = $data['organic'][0]['snippet'] ?? null;
+                $link = $data['organic'][0]['link'] ?? null;
+                
+                if ($snippet) {
+                    Log::info("Web search successful for: $query");
+                    $source = $link ? "Source: Web Search ($link)" : "Source: Web Search";
+                    return "$source\n$snippet";
+                }
+            }
+            
+            Log::warning("Web search returned no useful results");
+            return null;
+        } catch (\Exception $e) {
+            Log::error("Web search failed: " . $e->getMessage());
+            return null;
+        }
     }
 
     protected function fetchFallbackTopics(string $category): array

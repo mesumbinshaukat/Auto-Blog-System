@@ -57,6 +57,31 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
   - Soft deletes for safety.
   - Comprehensive error handling and email notifications.
 
+- **🆕 Advanced Error Handling & Resilience** (v2.0):
+  - **Triple-Layer API Fallback**:
+    - **Layer 1**: HuggingFace Primary → HuggingFace Fallback (all models)
+    - **Layer 2**: Gemini Primary → Gemini Fallback
+    - **Layer 3**: OpenRouter (deepseek → mistral → hermes free models)
+    - Exponential backoff for 429 rate limits (2^attempt seconds)
+  - **Smart Research Fallback**: Wikipedia API → Serper Google Search → Knowledge Base
+  - **Autonomous Error Recovery**:
+    - Job retry with backoff delays: 60s, 300s, 600s
+    - Auto-detects quota errors (402/429) and delays re-queue
+    - Email notifications at attempt 3+ for quota/critical failures
+  - **Enhanced Content Quality**:
+    - "JUICY" content prompts: vivid descriptions, real examples, enthusiasm
+    - Conversational tone with rhetorical questions
+    - Case studies and statistics integration
+
+- **🆕 Custom Prompt Feature** (v2.0):
+  - **Admin UI**: Add specific instructions via custom prompt field (max 2000 chars)
+  - **Use Cases**:
+    - Comparisons: "Compare React vs Vue for beginners"
+    - URL Integration: "Include data from https://example.com"
+    - Focus Areas: "Write for small business owners"
+    - Style Control: "Use beginner-friendly language"
+  - **Smart Handling**: Auto-truncation, validation, optional field
+
 ## 🛠 Tech Stack
 
 - **Framework**: Laravel 11.x (compatible with 12.x structure)
@@ -65,8 +90,10 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 - **AI Services**:
   - **Google Gemini API** (Primary Content & Analysis)
   - **Hugging Face Inference API** (Redundancy & Image Generation)
+  - **OpenRouter API** (Tertiary Fallback - 3 free models)
 - **Scraping**: Guzzle, Symfony DomCrawler
 - **SEO**: spatie/laravel-sitemap
+- **Research**: Serper API (Google Search fallback)
 
 ## 🚀 Installation & Setup
 
@@ -100,9 +127,15 @@ DB_DATABASE=auto_blog
 DB_USERNAME=root
 DB_PASSWORD=
 
-# AI API Keys (Get free keys from Hugging Face & Google AI Studio)
+# AI API Keys - Triple Redundancy Architecture
 HUGGINGFACE_API_KEY=your_hf_key_here
+HUGGINGFACE_API_KEY_FALLBACK=your_backup_hf_key  # Optional
 GEMINI_API_KEY=your_gemini_key_here
+GEMINI_API_KEY_FALLBACK=your_backup_gemini_key  # Optional
+OPEN_ROUTER_KEY=your_openrouter_key  # Optional - Free tier available
+
+# Research & SEO
+SERPER_API_KEY=your_serper_key  # Optional - For web search fallback
 
 # Mail Configuration (Required for error alerts)
 MAIL_MAILER=smtp
@@ -110,6 +143,7 @@ MAIL_HOST=smtp.mailtrap.io
 MAIL_PORT=2525
 MAIL_USERNAME=null
 MAIL_PASSWORD=null
+REPORTS_EMAIL=admin@example.com  # Receives quota/error notifications
 ```
 
 ### 4. Database Setup

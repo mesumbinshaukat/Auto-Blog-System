@@ -74,7 +74,14 @@ class AdminController extends Controller
             'title' => 'required|max:255',
             'content' => 'required',
             'category_id' => 'required|exists:categories,id',
+            'custom_prompt' => 'nullable|string|max:2000'
         ]);
+
+        // Truncate long custom prompts
+        if (!empty($validated['custom_prompt']) && strlen($validated['custom_prompt']) > 2000) {
+            $validated['custom_prompt'] = substr($validated['custom_prompt'], 0, 2000);
+            Log::warning("Custom prompt truncated to 2000 characters");
+        }
 
         $validated['slug'] = Str::slug($validated['title']);
         $validated['published_at'] = now();

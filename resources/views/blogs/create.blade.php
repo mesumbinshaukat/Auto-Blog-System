@@ -31,6 +31,21 @@
                 <p class="text-xs text-gray-500 mt-1">Use HTML tags for formatting. Headings H2 and H3 will generate the Table of Contents.</p>
             </div>
 
+            <div class="mb-6">
+                <label class="block text-gray-700 text-sm font-bold mb-2">
+                    Custom Prompt (Optional)
+                    <span class="text-gray-500 text-xs font-normal">- Add specific instructions, URLs to scrape, or comparison topics</span>
+                </label>
+                <textarea 
+                    name="custom_prompt" 
+                    rows="4" 
+                    maxlength="2000"
+                    class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                    placeholder="e.g., Compare X vs Y, Include data from https://example.com, Focus on beginners, Add case studies..."
+                >{{ old('custom_prompt') }}</textarea>
+                <p class="text-xs text-gray-500 mt-1">Max 2000 characters. AI will use this to customize content generation.</p>
+            </div>
+
             <div class="flex items-center justify-end">
                 <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded focus:outline-none focus:shadow-outline">
                     Create Blog

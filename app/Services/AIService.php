@@ -12,6 +12,7 @@ class AIService
     protected $hfTokenFallback;
     protected $geminiKey;
     protected $geminiKeyFallback;
+    protected $openRouterKey;
     
     // Priority list of models to try
     protected $models = [
@@ -27,6 +28,7 @@ class AIService
         $this->hfTokenFallback = env('HUGGINGFACE_API_KEY_FALLBACK');
         $this->geminiKey = env('GEMINI_API_KEY');
         $this->geminiKeyFallback = env('GEMINI_API_KEY_FALLBACK');
+        $this->openRouterKey = env('OPEN_ROUTER_KEY');
     }
 
     public function generateRawContent(string $topic, string $category, string $researchData = ''): string
@@ -146,6 +148,83 @@ class AIService
         return ['success' => false, 'data' => null, 'source' => 'none'];
     }
 
+    /**
+     * Call OpenRouter API with fallback through multiple free models
+     * 
+     * @param string $prompt The user prompt
+     * @param int $maxRetries Max retries per model (default: 2)
+     * @return array ['success' => bool, 'data' => mixed, 'source' => string]
+     */
+    protected function callOpenRouterWithFallback(string $prompt, int $maxRetries = 2): array
+    {
+        if (empty($this->openRouterKey)) {
+            Log::info("OpenRouter key not configured");
+            return ['success' => false, 'data' => null, 'source' => 'none'];
+        }
+
+        $models = [
+            'deepseek/deepseek-chat:free',
+            'mistralai/mistral-7b-instruct:free',
+            'nousresearch/hermes-3-llama-3.1-8b:free'
+        ];
+        
+        foreach ($models as $modelIndex => $model) {
+            $modelLabel = ['deepseek', 'mistral', 'hermes'][$modelIndex];
+            
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    Log::info("Calling OpenRouter with model: $model (attempt $attempt)");
+                    
+                    $response = Http::withHeaders([
+                        'Authorization' => 'Bearer ' . $this->openRouterKey,
+                        'Content-Type' => 'application/json',
+                        'HTTP-Referer' => env('APP_URL', 'http://localhost'),
+                        'X-Title' => 'Auto Blog System'
+                    ])->timeout(30)->post('https://openrouter.ai/api/v1/chat/completions', [
+                        'model' => $model,
+                        'messages' => [
+                            ['role' => 'user', 'content' => $prompt]
+                        ]
+                    ]);
+                    
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        $text = $data['choices'][0]['message']['content'] ?? '';
+                        
+                        if (!empty($text)) {
+                            Log::info("OpenRouter success with $modelLabel model");
+                            return ['success' => true, 'data' => $text, 'source' => "openrouter_$modelLabel"];
+                        }
+                    }
+                    
+                    $status = $response->status();
+                    Log::warning("OpenRouter $modelLabel attempt $attempt failed: HTTP $status");
+                    
+                    // Handle 429 with exponential backoff
+                    if ($status === 429 && $attempt < $maxRetries) {
+                        $delay = pow(2, $attempt);
+                        Log::warning("OpenRouter rate limit, waiting {$delay}s");
+                        sleep($delay);
+                    } elseif (in_array($status, [400, 404])) {
+                        break; // Don't retry on bad request or not found
+                    }
+                    
+                } catch (\Exception $e) {
+                    Log::error("OpenRouter $modelLabel attempt $attempt exception: " . $e->getMessage());
+                    if ($attempt < $maxRetries) {
+                        $delay = pow(2, $attempt);
+                        sleep($delay);
+                    }
+                }
+            }
+            
+            Log::warning("All retries exhausted for OpenRouter model: $model");
+        }
+        
+        Log::warning("All OpenRouter models exhausted");
+        return ['success' => false, 'data' => null, 'source' => 'none'];
+    }
+
     protected function generateKeywords(string $topic, string $category): array
     {
         // Use Gemini (preferred) or basic generation for keywords
@@ -158,13 +237,30 @@ class AIService
         $prompt = "Suggest 1 primary focus keyword and 3 secondary long-tail keywords for a blog post about \"$topic\" in category \"$category\". Return ONLY the keywords as a comma-separated list.";
         
         $result = $this->callGeminiWithFallback($prompt);
-        
+        $result = ['success' => false]; // Initialize result
+        if (!empty($this->geminiKey) || !empty($this->geminiKeyFallback)) {
+            $result = $this->callGeminiWithFallback($prompt);
+        } else {
+            Log::info("No Gemini keys configured for keyword generation.");
+        }
+
         if ($result['success']) {
             $keywords = array_map('trim', explode(',', $result['data']));
             return array_slice($keywords, 0, 4);
         }
-
-        return [Str::title($topic)];
+        
+        // Try OpenRouter if Gemini failed or was not configured
+        if (!empty($this->openRouterKey)) {
+            $openRouterResult = $this->callOpenRouterWithFallback($prompt);
+            if ($openRouterResult['success']) {
+                $keywords = array_map('trim', explode(',', $openRouterResult['data']));
+                return array_slice($keywords, 0, 4);
+            }
+        }
+        
+        // Final fallback: basic heuristic if all AI services failed
+        Log::warning("All AI services failed for keyword generation, using heuristic");
+        return [Str::slug($topic, ' '), strtolower($category), 'guide', 'tips'];
     }
 
     /**
@@ -259,37 +355,40 @@ REASON: [brief explanation]";
 
     protected function buildSystemPrompt(): string
     {
-        return "You are a professional blog writer and AISEO expert. Generate comprehensive, E-E-A-T optimized, and human-like blog posts in HTML format.
+        return "You are a professional blog writer and SEO expert. Generate JUICY, ENGAGING, and comprehensive blog posts that captivate readers and rank well.
+
+CONTENT QUALITY - MAKE IT JUICY:
+- **Vivid Descriptions**: Use sensory language, paint pictures with words, include real-world examples
+- **Engaging Style**: Conversational tone, use 'you', 'we', contractions, rhetorical questions
+- **Comprehensive Coverage**: Deep dive into topics with expert insights and practical advice
+- **Real Examples**: Include case studies, statistics, expert quotes, concrete scenarios
+- **Enthusiasm**: Write like you're explaining something fascinating to a curious friend
 
 REQUIRED STRUCTURE:
-- Start with <h1>Title</h1> (compelling, uses primary keyword naturally)
-- Introduction paragraph with <p> tags (include primary keyword in first 100 words, set the hook).
-- 4-6 main sections with <h2> headings (Use questions or natural queries as headers where appropriate for Voice Search/AI Overviews).
-- Use <h3> for subsections.
-- EACH SECTION must have multiple SHORT paragraphs (2-4 sentences).
-- Use <strong> for emphasis, <em> for italics.
-- Include <ul> or <ol> lists.
-- If topic involves comparisons/data, include HTML <table class=\"comparison-table\"> with <thead> and <tbody>.
+- Start with \u003ch1\u003eTitle\u003c/h1\u003e (compelling, uses primary keyword naturally)
+- Hook readers in first paragraph with \u003cp\u003e tags (include primary keyword in first 100 words)
+- 4-6 main sections with \u003ch2\u003e headings (Use questions or natural queries for Voice Search/AI Overviews)
+- Use \u003ch3\u003e for subsections
+- EACH SECTION must have multiple SHORT paragraphs (2-4 sentences each)
+- Use \u003cstrong\u003e for emphasis, \u003cem\u003e for italics
+- Include \u003cul\u003e or \u003col\u003e lists for scannability
+- If topic involves comparisons/data, include HTML \u003ctable class=\"comparison-table\"\u003e with \u003cthead\u003e and \u003ctbody\u003e
 
-AISEO & CONTENT REQUIREMENTS:
-- **E-E-A-T**: Write with authority and expertise. Use specific examples, data points, or expert consensus.
+SEO & AISEO REQUIREMENTS:
+- **E-E-A-T**: Write with authority and expertise. Use specific examples, data points, expert consensus
 - **Keywords**: 
-    - Integrate 1 Primary Focus Keyword (provided below) naturally (1-2% density).
-    - Integrate 2-3 Long-tail keywords naturally.
-    - Optimize for \"AI Overviews\": Answer 'what', 'how', 'why' questions directly and concisely in the first sentence of sections.
+    - Integrate 1 Primary Focus Keyword (provided below) naturally (1-2% density)
+    - Integrate 2-3 Long-tail keywords naturally
+    - Optimize for \"AI Overviews\": Answer 'what', 'how', 'why' questions directly in first sentence of sections
 - **External Links**: 
-    - Smartly include 2-4 dofollow external links to relevant, authoritative sites (e.g., Wikipedia, BBC, IEEE, Gov/Edu sites).
-    - Place links naturally using descriptive anchor text (e.g., <a href=\"https://www.wikipedia.org/...\" rel=\"dofollow\" target=\"_blank\">descriptive anchor</a>). 
-    - Do NOT suggest generic links like 'google.com'.
-- **Internal Flow**: Suggest natural transitions between topics.
-- **Tone**: Conversational, engaging, and human (use \"we\", \"you\", contractions).
-- **Formatting**: Maximize readability. No walls of text.
+    - Include 2-4 dofollow external links to authoritative sites (Wikipedia, BBC, IEEE, Gov/Edu)
+    - Place links naturally with descriptive anchor text
+    - Example: \u003ca href='https://www.wikipedia.org/...' rel='dofollow' target='_blank'\u003edescriptive anchor\u003c/a\u003e
+- **Formatting**: Maximize readability. No walls of text. Break up content visually.
 
-Example Link:
-\"Studies show that <a href='https://www.sleepfoundation.org/...' rel='dofollow' target='_blank'>adequate sleep improves cognition</a> significantly.\"
+TONE: Make it juicy and memorable! Be enthusiastic, informative, and engaging. Your goal is to make readers think \"Wow, this is exactly what I needed to know!\"
 
-OUTPUT FORMAT:
-Return ONLY the HTML content, no markdown code blocks.";
+OUTPUT FORMAT: Return ONLY the HTML content, no markdown code blocks.";
     }
 
     protected function buildUserPrompt(string $topic, string $category, string $researchData, string $keywords = ''): string
