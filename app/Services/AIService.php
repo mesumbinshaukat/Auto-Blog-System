@@ -32,9 +32,14 @@ class AIService
             return $this->generateMockContent($topic);
         }
 
+        // 0. Pre-generation: Keyword Research
+        $keywords = $this->generateKeywords($topic, $category);
+        Log::info("Target keywords: " . implode(', ', $keywords));
+        $keywordString = implode(', ', $keywords);
+
         // Build comprehensive prompt
         $systemPrompt = $this->buildSystemPrompt();
-        $userPrompt = $this->buildUserPrompt($topic, $category, $researchData);
+        $userPrompt = $this->buildUserPrompt($topic, $category, $researchData, $keywordString);
 
         $result = null;
 
@@ -72,13 +77,39 @@ class AIService
         return $result;
     }
 
+    protected function generateKeywords(string $topic, string $category): array
+    {
+        // Use Gemini (preferred) or basic generation for keywords
+        // Simple heuristic fallback if no AI: just split topic and add category
+        
+        if (empty($this->geminiKey)) {
+             return [Str::slug($topic, ' '), strtolower($category), 'guide', 'tips'];
+        }
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}";
+        $prompt = "Suggest 1 primary focus keyword and 3 secondary long-tail keywords for a blog post about \"$topic\" in category \"$category\". Return ONLY the keywords as a comma-separated list.";
+        
+        try {
+             $response = Http::withOptions(['verify' => false])->post($url, ['contents' => [['parts' => [['text' => $prompt]]]]]);
+             if ($response->successful()) {
+                 $text = $response->json()['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                 $keywords = array_map('trim', explode(',', $text));
+                 return array_slice($keywords, 0, 4);
+             }
+        } catch (\Exception $e) {
+            Log::warning("Keyword gen failed: " . $e->getMessage());
+        }
+
+        return [Str::title($topic)];
+    }
+
     protected function buildSystemPrompt(): string
     {
         return "You are a professional blog writer and SEO expert. Generate comprehensive, well-structured blog posts in HTML format.
 
 REQUIRED STRUCTURE:
-- Start with <h1>Title</h1> (compelling, SEO-optimized)
-- Introduction paragraph with <p> tags
+- Start with <h1>Title</h1> (compelling, SEO-optimized, includes focus keyword)
+- Introduction paragraph with <p> tags (include keyword in first 100 words)
 - 4-6 main sections with <h2> headings
 - Use <h3> for subsections where appropriate
 - EACH SECTION must have multiple SHORT paragraphs.
@@ -87,9 +118,11 @@ REQUIRED STRUCTURE:
 - Include <ul> or <ol> lists where relevant
 - If topic involves comparisons/data, include HTML <table class=\"comparison-table\"> with <thead> and <tbody>
 
-CONTENT REQUIREMENTS:
+SEO & CONTENT REQUIREMENTS:
 - Length: 800-2000 words.
-- Write naturally and conversationally.
+- Write naturally and conversationally (E-E-A-T principles).
+- **Keywords**: Use focus keywords naturally (1-2% density). Do not stuff.
+- **Links**: Include 2-3 external dofollow links to authoritative sources (e.g., Wikipedia, BBC, Reputable Niche Sites) within the content. Use <a href=\"...\" rel=\"dofollow\">anchor text</a>.
 - Avoid robotic phrases and em dashes (—).
 - Vary sentence structure and length.
 - Include specific examples.
@@ -106,9 +139,12 @@ OUTPUT FORMAT:
 Return ONLY the HTML content, no markdown code blocks.";
     }
 
-    protected function buildUserPrompt(string $topic, string $category, string $researchData): string
+    protected function buildUserPrompt(string $topic, string $category, string $researchData, string $keywords = ''): string
     {
-        $prompt = "Write a comprehensive blog post about \"$topic\" in the $category category.\n\n";
+        $prompt = "Write a comprehensive blog post about \"$topic\" in the $category category.\n";
+        if ($keywords) {
+            $prompt .= "Target Keywords: $keywords\n\n";
+        }
         
         if (!empty($researchData)) {
             $prompt .= "RESEARCH CONTEXT (Use as inspiration, do NOT copy):\n$researchData\n\n";
@@ -233,8 +269,9 @@ Requirements:
    - Good: \"AI, once niche, is now...\" or \"AI was once niche but is now...\"
 4. **Humanize**: Vary sentence structure, use contractions (e.g., \"it's\", \"don't\"), and ensure a conversational tone.
 5. Add 'comparison-table' class to tables.
-6. Maintain all headings and structure.
-7. Return ONLY the HTML.
+6. **SEO Check**: Ensure keywords identified in content flow naturally. Ensure at least 1 external link exists; if not, suggest one contextually.
+7. Maintain all headings and structure.
+8. Return ONLY the HTML.
 
 Content:
 " . substr($content, 0, 15000);

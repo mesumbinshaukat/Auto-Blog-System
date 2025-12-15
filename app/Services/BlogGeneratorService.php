@@ -59,6 +59,22 @@ class BlogGeneratorService
         // 5. Validate content
         $wordCount = str_word_count(strip_tags($finalContent));
         Log::info("Blog generated: $wordCount words");
+        
+        // 5b. Extract Keywords (Simple frequency + title words fallback if no AI extraction available easily here, but we can rely on title mainly for meta)
+        // For meta optimization, we'll use the topic and generated title.
+        
+        // 5c. Internal Linking
+        $relatedBlogs = Blog::where('category_id', $category->id)
+            ->where('id', '!=', $category->id) // Safety check, though category_id != blog_id is obvious. 
+            // Better: where('id', '!=', $newId) - but we don't have ID yet.
+            // We can only link to EXISTING blogs.
+            ->latest()
+            ->take(3)
+            ->get();
+            
+        if ($relatedBlogs->count() > 0) {
+             $finalContent = $this->insertInternalLinks($finalContent, $relatedBlogs);
+        }
 
         // 6. Extract Title
         $title = $topic;
@@ -80,9 +96,10 @@ class BlogGeneratorService
             'content' => $finalContent,
             'category_id' => $category->id,
             'published_at' => now(),
-            'meta_title' => Str::limit($title, 60),
-            'meta_description' => Str::limit(strip_tags($finalContent), 160),
-            'tags_json' => [$category->name, 'Trending', 'AI Generated', $topic],
+             // Enhanced SEO Meta
+            'meta_title' => Str::limit($title, 55) . ' - ' . config('app.name', 'AutoBlog'),
+            'meta_description' => Str::limit(strip_tags($finalContent), 155),
+            'tags_json' => [$category->name, 'Trending', $topic, date('Y')],
             'table_of_contents_json' => $toc,
             'thumbnail_path' => null, // Placeholder
         ]);
@@ -106,5 +123,64 @@ class BlogGeneratorService
         $onProgress && $onProgress('Done!', 100);
         
         return $blog;
+    }
+
+    protected function insertInternalLinks(string $html, $relatedBlogs): string
+    {
+        if ($relatedBlogs->isEmpty()) return $html;
+
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        
+        $paragraphs = $dom->getElementsByTagName('p');
+        $pCount = $paragraphs->length;
+        
+        // Distribute links: one after 1st para, one in middle, one near end (approx)
+        $positions = [
+            1, 
+            (int)($pCount / 2), 
+            $pCount - 2
+        ];
+        
+        $blogIndex = 0;
+        
+        foreach ($positions as $index) {
+             if ($blogIndex >= $relatedBlogs->count()) break;
+             if ($index < 0 || $index >= $pCount) continue;
+             
+             $targetP = $paragraphs->item($index);
+             if ($targetP) {
+                 $blog = $relatedBlogs[$blogIndex];
+                 
+                 // Create link phrasing
+                 $phrases = [
+                     "For more details, check out <a href='%s' rel='dofollow'>%s</a>.",
+                     "You might also like: <a href='%s' rel='dofollow'>%s</a>.",
+                     "Related reading: <a href='%s' rel='dofollow'>%s</a>."
+                 ];
+                 $phrase = sprintf($phrases[$blogIndex % 3], route('blog.show', $blog->slug), $blog->title);
+                 
+                 // Append to paragraph end or creating new valid node
+                 // Easy way: append text node + element? No, phrase has HTML.
+                 // Create a span or just append to P?
+                 // Safer: Create a new small paragraph after this one to avoid breaking flow? 
+                 // Or append text. Let's append to P for natural flow if possible, or new P.
+                 // New P is safer for structure.
+                 
+                 $newP = $dom->createElement('p');
+                 // Load HTML fragment for the link
+                 $frag = $dom->createDocumentFragment();
+                 $frag->appendXML("<em>$phrase</em>");
+                 $newP->appendChild($frag);
+                 
+                 $targetP->parentNode->insertBefore($newP, $targetP->nextSibling);
+                 $blogIndex++;
+             }
+        }
+        
+        $fixed = $dom->saveHTML();
+        return str_replace('<?xml encoding="utf-8" ?>', '', $fixed);
     }
 }

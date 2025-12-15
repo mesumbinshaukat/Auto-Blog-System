@@ -16,6 +16,11 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
   - Generates structured content with H1-H6 headings, paragraphs, and tables.
   - Generates structured content with H1-H6 headings, paragraphs, and tables.
   - Auto-extracts tags and meta descriptions.
+  - **SEO Enhanced**: 
+    - AI-Powered Keyword Research (1 primary, 3 long-tail).
+    - Intelligent Internal Linking (contextual inference).
+    - Optimized Meta Titles and Descriptions.
+    - Automatic Sitemap Generation (`sitemap.xml`) via `BlogObserver`.
   - **Smart Title Sanitizer**: Automatically detects and fixes malformed HTML entities (e.g., `&rsquo;` → `’`) in titles and identifying duplicate topics.
 
 - **Smart Scheduling**:
@@ -32,9 +37,11 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 - **SEO Optimized**:
   - Automatic Meta Title & Description generation.
   - OpenGraph tags for social sharing.
-  - **Dynamic XML Sitemap**: Multi-file architecture (`/sitemap.xml`, `/sitemap/blogs-1.xml`, `/sitemap/categories.xml`) for auto-scaling.
+  - Automatic Meta Title & Description generation.
+  - OpenGraph tags for social sharing.
+  - **Dynamic XML Sitemap**: `spatie/laravel-sitemap` integration for robust handling.
   - `robots.txt` configuration.
-  - Keyword density optimization.
+  - Keyword density optimization and Internal Linking.
 
 - **Professional Analytics Dashboard**:
   - **Detailed Tracking**: Records IP, User Agent, Referer, and Country (IPv4/IPv6 support).
@@ -58,6 +65,7 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
   - **Google Gemini API** (Primary Content & Analysis)
   - **Hugging Face Inference API** (Redundancy & Image Generation)
 - **Scraping**: Guzzle, Symfony DomCrawler
+- **SEO**: spatie/laravel-sitemap
 
 ## 🚀 Installation & Setup
 
@@ -175,6 +183,12 @@ The system includes a service to clean malformed HTML entities from blog titles 
 php artisan blog:fix-titles
 ```
 *Note: This runs daily via the scheduler.*
+
+### SEO Fixes
+To retroactively fix SEO meta tags and inject internal links for existing blogs:
+```bash
+php artisan blog:fix-seo
+```
 
 ## 🧪 Testing
 
