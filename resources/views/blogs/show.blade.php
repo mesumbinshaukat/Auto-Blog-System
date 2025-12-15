@@ -61,7 +61,12 @@
                     .prose table th { background-color: #3b82f6; color: white; padding: 1rem; text-align: left; font-weight: 600; }
                     .prose table td { padding: 1rem; border-bottom: 1px solid #d1d5db; color: #4b5563; }
                     .prose table tbody tr:nth-child(odd) { background-color: #f9fafb; }
+                    .prose table tbody tr:nth-child(odd) { background-color: #f9fafb; }
                     .prose table tbody tr:hover { background-color: #f3f4f6; }
+                    
+                    /* Link Styling */
+                    .prose a { color: #2563eb; text-decoration: underline; text-decoration-thickness: 1px; }
+                    .prose a:hover { text-decoration-thickness: 2px; }
                     
                     /* Comparison Table Specifics */
                     .comparison-table { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }

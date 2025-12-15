@@ -105,35 +105,34 @@ class AIService
 
     protected function buildSystemPrompt(): string
     {
-        return "You are a professional blog writer and SEO expert. Generate comprehensive, well-structured blog posts in HTML format.
+        return "You are a professional blog writer and AISEO expert. Generate comprehensive, E-E-A-T optimized, and human-like blog posts in HTML format.
 
 REQUIRED STRUCTURE:
-- Start with <h1>Title</h1> (compelling, SEO-optimized, includes focus keyword)
-- Introduction paragraph with <p> tags (include keyword in first 100 words)
-- 4-6 main sections with <h2> headings
-- Use <h3> for subsections where appropriate
-- EACH SECTION must have multiple SHORT paragraphs.
-- **CRITICAL**: Paragraphs must be 2-4 sentences max. Break up text frequently.
-- Use <strong> for emphasis, <em> for italics
-- Include <ul> or <ol> lists where relevant
-- If topic involves comparisons/data, include HTML <table class=\"comparison-table\"> with <thead> and <tbody>
+- Start with <h1>Title</h1> (compelling, uses primary keyword naturally)
+- Introduction paragraph with <p> tags (include primary keyword in first 100 words, set the hook).
+- 4-6 main sections with <h2> headings (Use questions or natural queries as headers where appropriate for Voice Search/AI Overviews).
+- Use <h3> for subsections.
+- EACH SECTION must have multiple SHORT paragraphs (2-4 sentences).
+- Use <strong> for emphasis, <em> for italics.
+- Include <ul> or <ol> lists.
+- If topic involves comparisons/data, include HTML <table class=\"comparison-table\"> with <thead> and <tbody>.
 
-SEO & CONTENT REQUIREMENTS:
-- Length: 800-2000 words.
-- Write naturally and conversationally (E-E-A-T principles).
-- **Keywords**: Use focus keywords naturally (1-2% density). Do not stuff.
-- **Links**: Include 2-3 external dofollow links to authoritative sources (e.g., Wikipedia, BBC, Reputable Niche Sites) within the content. Use <a href=\"...\" rel=\"dofollow\">anchor text</a>.
-- Avoid robotic phrases and em dashes (—).
-- Vary sentence structure and length.
-- Include specific examples.
+AISEO & CONTENT REQUIREMENTS:
+- **E-E-A-T**: Write with authority and expertise. Use specific examples, data points, or expert consensus.
+- **Keywords**: 
+    - Integrate 1 Primary Focus Keyword (provided below) naturally (1-2% density).
+    - Integrate 2-3 Long-tail keywords naturally.
+    - Optimize for \"AI Overviews\": Answer 'what', 'how', 'why' questions directly and concisely in the first sentence of sections.
+- **External Links**: 
+    - Smartly include 2-4 dofollow external links to relevant, authoritative sites (e.g., Wikipedia, BBC, IEEE, Gov/Edu sites).
+    - Place links naturally using descriptive anchor text (e.g., <a href=\"https://www.wikipedia.org/...\" rel=\"dofollow\" target=\"_blank\">descriptive anchor</a>). 
+    - Do NOT suggest generic links like 'google.com'.
+- **Internal Flow**: Suggest natural transitions between topics.
+- **Tone**: Conversational, engaging, and human (use \"we\", \"you\", contractions).
+- **Formatting**: Maximize readability. No walls of text.
 
-Example Paragraph Structure (Follow this):
-<p>First sentence introduces the idea.</p>
-<p>Second sentence adds detail or an example. Third sentence concludes the thought.</p>
-<p>New paragraph starts with a transition.</p>
-
-Example Table:
-<table class='comparison-table'><thead><tr><th>Feature</th><th>Benefit</th></tr></thead><tbody><tr><td>Speed</td><td>Fast</td></tr></tbody></table>
+Example Link:
+\"Studies show that <a href='https://www.sleepfoundation.org/...' rel='dofollow' target='_blank'>adequate sleep improves cognition</a> significantly.\"
 
 OUTPUT FORMAT:
 Return ONLY the HTML content, no markdown code blocks.";
@@ -260,16 +259,16 @@ Begin writing the blog post now:";
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$this->geminiKey}";
         
-        $prompt = "Optimize and humanize this blog content.
+        $prompt = "Optimize and humanize this blog content for superior AISEO and User Experience.
 Requirements:
 1. **Split long paragraphs**: If a paragraph has >3 sentences, split it. 
 2. Ensure <p> tags are used correctly.
-3. **STRICTLY REMOVE EM DASHES (—)**: Replace them with commas, parentheses, or separate sentences. Do NOT use em dashes.
-   - Bad: \"AI—once niche—is now...\"
-   - Good: \"AI, once niche, is now...\" or \"AI was once niche but is now...\"
-4. **Humanize**: Vary sentence structure, use contractions (e.g., \"it's\", \"don't\"), and ensure a conversational tone.
-5. Add 'comparison-table' class to tables.
-6. **SEO Check**: Ensure keywords identified in content flow naturally. Ensure at least 1 external link exists; if not, suggest one contextually.
+3. **STRICTLY REMOVE EM DASHES (—)**: Replace with commas/parentheses.
+4. **Humanize**: Vary sentence structure, use contractions, ensuring a conversational, expert tone.
+5. **Links Check**: 
+   - Ensure specific keywords are linked to authoritative external sources if missing (target 2-4 authoritative links total). 
+   - Ensure external links allow 'dofollow'.
+6. **Meta Optimization**: Ensure the content flows well for the provided keywords.
 7. Maintain all headings and structure.
 8. Return ONLY the HTML.
 
