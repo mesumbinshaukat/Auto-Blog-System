@@ -71,8 +71,19 @@ class CheckScheduler
                 // so we are good. If we wanted an alert for *missing* runs, we'd need an external monitor.
                 // But we can log "Low traffic detected" if $lastRun was > 25 hours ago.
                 if ($lastRun && Carbon::parse($lastRun)->addHours(25)->isPast()) {
-                     Log::warning('Scheduler: Low traffic detected. Scheduler ran late.');
-                     // Send email alert logic could go here
+                     Log::warning('Scheduler: Low traffic detected. Scheduler ran late (last run: ' . $lastRun . ').');
+                     
+                     // Send email alert (rate limited to once per 24h to avoid spam)
+                     try {
+                         if (Cache::add('scheduler_alert_sent', true, 86400)) { // 24 hours
+                             \Illuminate\Support\Facades\Mail::raw("Warning: Auto-Blog Scheduler is running late.\nLast run: $lastRun\nCurrent time: " . now()->toDateTimeString() . "\n\nThis indicates low site traffic or cron issues.", function ($message) {
+                                 $message->to(env('REPORTS_EMAIL', 'admin@example.com'))
+                                     ->subject('⚠️ Auto-Blog Scheduler Warning: Low Traffic / Late Run');
+                             });
+                         }
+                     } catch (\Exception $e) {
+                         Log::error("Failed to send scheduler alert: " . $e->getMessage());
+                     }
                 }
                 
             } catch (\Exception $e) {

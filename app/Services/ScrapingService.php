@@ -63,9 +63,157 @@ class ScrapingService
         ]);
     }
 
+    /**
+     * Fetch trending topics from Mediastack News API
+     * 
+     * @param string $category
+     * @return array|null Array of topics or null on failure
+     */
+    protected function fetchTrendingTopicsWithMediastack(string $category): ?array
+    {
+        $apiKey = env('MEDIA_STACK_KEY');
+        
+        if (empty($apiKey)) {
+            Log::info("MEDIA_STACK_KEY not configured, skipping Mediastack");
+            return null;
+        }
+
+        try {
+            Log::info("Fetching trending topics from Mediastack for category: $category");
+            
+            $response = \Illuminate\Support\Facades\Http::timeout(15)->get('http://api.mediastack.com/v1/news', [
+                'access_key' => $apiKey,
+                'categories' => $category,
+                'languages' => 'en',
+                'limit' => 20,
+                'date' => date('Y-m-d'),
+            ]);
+
+            if (!$response->successful()) {
+                $status = $response->status();
+                Log::warning("Mediastack API returned status $status for category: $category");
+                
+                if ($status === 429) {
+                    Log::warning("Mediastack rate limit exceeded");
+                } elseif ($status === 403 || $status === 401) {
+                    Log::warning("Mediastack quota exceeded or invalid key");
+                }
+                
+                return null;
+            }
+
+            $data = $response->json();
+            
+            if (empty($data['data'])) {
+                Log::warning("Mediastack returned empty data for category: $category");
+                return null;
+            }
+
+            $topics = [];
+            foreach ($data['data'] as $article) {
+                if (!empty($article['title'])) {
+                    $topics[] = trim($article['title']);
+                }
+                
+                if (count($topics) >= 10) break;
+            }
+
+            Log::info("Mediastack returned " . count($topics) . " topics for category: $category");
+            return $topics;
+
+        } catch (\Exception $e) {
+            Log::error("Mediastack API error for category $category: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Research topic using Mediastack News API
+     * 
+     * @param string $topic
+     * @return string|null Research data or null on failure
+     */
+    protected function researchTopicWithMediastack(string $topic): ?string
+    {
+        $apiKey = env('MEDIA_STACK_KEY');
+        
+        if (empty($apiKey)) {
+            return null;
+        }
+
+        try {
+            Log::info("Researching topic via Mediastack: $topic");
+            
+            $response = \Illuminate\Support\Facades\Http::timeout(15)->get('http://api.mediastack.com/v1/news', [
+                'access_key' => $apiKey,
+                'keywords' => $topic,
+                'languages' => 'en',
+                'limit' => 5,
+                'sort' => 'published_desc',
+            ]);
+
+            if (!$response->successful()) {
+                Log::warning("Mediastack research failed for topic: $topic (status: {$response->status()})");
+                return null;
+            }
+
+            $data = $response->json();
+            
+            if (empty($data['data'])) {
+                Log::warning("Mediastack research returned no data for topic: $topic");
+                return null;
+            }
+
+            $researchData = [];
+            foreach ($data['data'] as $article) {
+                $title = $article['title'] ?? 'Untitled';
+                $description = $article['description'] ?? '';
+                $url = $article['url'] ?? '';
+                
+                // Truncate description to 1000 chars
+                $description = $this->truncateSnippet($description, 1000);
+                
+                $researchData[] = "Source: Mediastack News ($title)\nFrom: $url\n$description";
+            }
+
+            Log::info("Mediastack research found " . count($researchData) . " articles for topic: $topic");
+            return "Research findings from Mediastack:\n" . implode("\n\n", $researchData);
+
+        } catch (\Exception $e) {
+            Log::error("Mediastack research error for topic $topic: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Truncate snippet to specified length
+     * 
+     * @param string $text
+     * @param int $maxLength
+     * @return string
+     */
+    protected function truncateSnippet(string $text, int $maxLength = 1000): string
+    {
+        if (strlen($text) <= $maxLength) {
+            return $text;
+        }
+        
+        return substr($text, 0, $maxLength) . '...';
+    }
+
     public function fetchTrendingTopics(string $category): array
     {
         $category = strtolower($category);
+        
+        // Try Mediastack first
+        $mediastackTopics = $this->fetchTrendingTopicsWithMediastack($category);
+        if ($mediastackTopics && count($mediastackTopics) >= 5) {
+            Log::info("Using Mediastack topics for category: $category");
+            return $mediastackTopics;
+        }
+        
+        // Fallback to RSS
+        Log::info("Falling back to RSS for category: $category");
         $sources = $this->rssSources[$category] ?? [];
         
         // Add random variation to avoid stale topics
@@ -202,6 +350,12 @@ class ScrapingService
     public function researchTopic(string $topic): string
     {
         $researchData = [];
+        
+        // 0. Try Mediastack News API first
+        $mediastackResearch = $this->researchTopicWithMediastack($topic);
+        if ($mediastackResearch) {
+            $researchData[] = $mediastackResearch;
+        }
         
         // 1. Wikipedia Search API (Better reliably than guessing URL)
         try {

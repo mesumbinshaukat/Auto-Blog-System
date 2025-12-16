@@ -8,33 +8,99 @@ use Illuminate\Support\Str;
 
 class AIService
 {
-    protected $hfToken;
-    protected $hfTokenFallback;
-    protected $geminiKey;
-    protected $geminiKeyFallback;
+    protected $geminiKeys = [];
+    protected $hfKeys = [];
     protected $openRouterKey;
+    protected $quotaExceeded = []; // Track APIs that hit quota
     
-    // Priority list of models to try
+    // Priority list of HuggingFace models to try
     protected $models = [
         'allenai/Olmo-3-7B-Instruct',          // Primary
         'swiss-ai/Apertus-8B-Instruct-2509',   // Fallback 1
         'microsoft/Phi-3-mini-4k-instruct',    // Fallback 2 (Fast, good for structure)
         'Qwen/Qwen2.5-7B-Instruct',            // Fallback 3 (Robust)
     ];
+    
+    // OpenRouter free models
+    protected $openRouterFreeModels = [
+        'deepseek/deepseek-chat',
+        'mistralai/mistral-7b-instruct',
+        'nousresearch/hermes-3-llama-3.1-8b'
+    ];
 
     public function __construct()
     {
-        $this->hfToken = env('HUGGINGFACE_API_KEY');
-        $this->hfTokenFallback = env('HUGGINGFACE_API_KEY_FALLBACK');
-        $this->geminiKey = env('GEMINI_API_KEY');
-        $this->geminiKeyFallback = env('GEMINI_API_KEY_FALLBACK');
+        // Load array-based API keys
+        $this->geminiKeys = $this->loadApiKeysArray('GEMINI_API_KEY_ARR');
+        $this->hfKeys = $this->loadApiKeysArray('HUGGINGFACE_API_KEY_ARR');
+        
+        // Backward compatibility: load legacy single keys if array keys are empty
+        if (empty($this->geminiKeys)) {
+            $legacyKeys = array_filter([
+                env('GEMINI_API_KEY'),
+                env('GEMINI_API_KEY_FALLBACK')
+            ]);
+            if (!empty($legacyKeys)) {
+                $this->geminiKeys = $legacyKeys;
+                Log::info("Using legacy GEMINI_API_KEY format (" . count($legacyKeys) . " keys)");
+            }
+        }
+        
+        if (empty($this->hfKeys)) {
+            $legacyKeys = array_filter([
+                env('HUGGINGFACE_API_KEY'),
+                env('HUGGINGFACE_API_KEY_FALLBACK')
+            ]);
+            if (!empty($legacyKeys)) {
+                $this->hfKeys = $legacyKeys;
+                Log::info("Using legacy HUGGINGFACE_API_KEY format (" . count($legacyKeys) . " keys)");
+            }
+        }
+        
         $this->openRouterKey = env('OPEN_ROUTER_KEY');
+        
+        Log::info("AIService initialized with " . count($this->geminiKeys) . " Gemini keys, " . count($this->hfKeys) . " HF keys");
+    }
+    
+    /**
+     * Load API keys from environment variable as JSON array
+     * 
+     * @param string $envKey
+     * @return array
+     */
+    protected function loadApiKeysArray(string $envKey): array
+    {
+        $value = env($envKey);
+        
+        if (empty($value)) {
+            return [];
+        }
+        
+        // Try to decode as JSON array
+        $decoded = json_decode($value, true);
+        
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return array_filter($decoded); // Remove empty values
+        }
+        
+        // If not JSON, treat as single key for backward compatibility
+        return [$value];
+    }
+    
+    /**
+     * Get quota exceeded APIs for reporting
+     * 
+     * @return array
+     */
+    public function getQuotaExceeded(): array
+    {
+        return $this->quotaExceeded;
     }
 
     public function generateRawContent(string $topic, string $category, string $researchData = ''): string
     {
         // Check if API key is configured
-        if (empty($this->hfToken)) {
+        if (empty($this->hfKeys)) {
             Log::warning("HUGGINGFACE_API_KEY not configured.");
             return $this->generateMockContent($topic);
         }
@@ -94,10 +160,13 @@ class AIService
      */
     protected function callGeminiWithFallback(string $prompt, string $model = 'gemini-2.0-flash-exp', int $maxRetries = 2): array
     {
-        $keys = array_filter([$this->geminiKey, $this->geminiKeyFallback]);
+        if (empty($this->geminiKeys)) {
+            Log::info("No Gemini API keys configured");
+            return ['success' => false, 'data' => null, 'source' => 'none'];
+        }
         
-        foreach ($keys as $keyIndex => $apiKey) {
-            $keyLabel = $keyIndex === 0 ? 'primary' : 'fallback';
+        foreach ($this->geminiKeys as $keyIndex => $apiKey) {
+            $keyLabel = "key_" . ($keyIndex + 1);
             
             for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
                 try {
@@ -114,27 +183,49 @@ class AIService
                         $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
                         
                         if (!empty($text)) {
-                            Log::info("Gemini API success ({$keyLabel} key, attempt {$attempt})");
+                            Log::info("Gemini API success ({$keyLabel}, attempt {$attempt})");
                             return ['success' => true, 'data' => $text, 'source' => "gemini_{$keyLabel}"];
                         }
                     }
                     
                     $status = $response->status();
-                    Log::warning("Gemini {$keyLabel} key attempt {$attempt} failed: HTTP {$status}");
+                    Log::warning("Gemini {$keyLabel} attempt {$attempt} failed: HTTP {$status}");
                     
-                    // Don't retry on 404 (model not found) or 400 (bad request) - unless it's a quote error
+                    // Handle quota exceeded (402) - skip to next key immediately
+                    if ($status === 402 || $status === 403) {
+                        Log::warning("Gemini {$keyLabel} quota exceeded (HTTP {$status}), skipping to next key");
+                        $this->quotaExceeded[] = "Gemini {$keyLabel}";
+                        break; // Skip to next key
+                    }
+                    
+                    // Handle rate limit (429) - retry with backoff
+                    if ($status === 429) {
+                        if ($attempt < $maxRetries) {
+                            $delay = pow(2, $attempt); // Exponential backoff: 2s, 4s
+                            Log::warning("Gemini {$keyLabel} rate limited, retrying in {$delay}s...");
+                            sleep($delay);
+                            continue;
+                        } else {
+                            Log::warning("Gemini {$keyLabel} rate limit retries exhausted, skipping to next key");
+                            break;
+                        }
+                    }
+                    
+                    // Don't retry on 404 (model not found) or 400 (bad request)
                     if (in_array($status, [400, 404])) {
+                        Log::warning("Gemini {$keyLabel} returned {$status}, skipping to next key");
                         break;
                     }
                     
+                    // Generic retry with backoff for other errors
                     if ($attempt < $maxRetries) {
-                        $delay = pow(2, $attempt); // Exponential backoff: 2s, 4s, 8s...
+                        $delay = pow(2, $attempt);
                         Log::warning("Retrying in {$delay}s...");
                         sleep($delay);
                     }
                     
                 } catch (\Exception $e) {
-                    Log::warning("Gemini {$keyLabel} key attempt {$attempt} exception: " . $e->getMessage());
+                    Log::warning("Gemini {$keyLabel} attempt {$attempt} exception: " . $e->getMessage());
                     if ($attempt < $maxRetries) {
                         $delay = pow(2, $attempt);
                         sleep($delay);
@@ -144,7 +235,7 @@ class AIService
         }
         
         // All Gemini keys failed
-        Log::info("All Gemini keys exhausted, returning failure");
+        Log::info("All " . count($this->geminiKeys) . " Gemini keys exhausted");
         return ['success' => false, 'data' => null, 'source' => 'none'];
     }
 
@@ -426,16 +517,18 @@ Begin writing the blog post now:";
     {
         $url = "https://router.huggingface.co/v1/chat/completions";
         
-        // Try with primary key first, then fallback
-        $tokens = array_filter([$this->hfToken, $this->hfTokenFallback]);
+        if (empty($this->hfKeys)) {
+            Log::warning("No HuggingFace API keys configured");
+            return null;
+        }
         
-        foreach ($tokens as $tokenIndex => $token) {
-            $tokenLabel = $tokenIndex === 0 ? 'primary' : 'fallback';
-            Log::info("Trying HuggingFace API with {$tokenLabel} key for model: $model");
+        foreach ($this->hfKeys as $tokenIndex => $token) {
+            $tokenLabel = "key_" . ($tokenIndex + 1);
+            Log::info("Trying HuggingFace API with {$tokenLabel} for model: $model");
 
             for ($i = 0; $i < $retries; $i++) {
                 try {
-                    Log::info("Calling Hugging Face Chat API: $model ({$tokenLabel} key, attempt " . ($i + 1) . "/$retries)");
+                    Log::info("Calling Hugging Face Chat API: $model ({$tokenLabel}, attempt " . ($i + 1) . "/$retries)");
                     
                     $response = Http::withToken($token)
                         ->withOptions(['verify' => false])
@@ -457,13 +550,28 @@ Begin writing the blog post now:";
                         
                         if ($content) {
                             $wordCount = str_word_count(strip_tags($content));
-                            Log::info("Successfully generated content with {$tokenLabel} key: $wordCount words");
+                            Log::info("Successfully generated content with {$tokenLabel}: $wordCount words");
                             return $this->cleanContent($content);
                         }
                     }
                     
-                    Log::warning("HF API ({$tokenLabel} key) returned unsuccessful response: " . $response->status());
-                    Log::warning("Response body: " . substr($response->body(), 0, 500));
+                    $status = $response->status();
+                    Log::warning("HF API ({$tokenLabel}) returned status {$status}");
+                    
+                    // Handle quota exceeded (402) - skip to next key
+                    if ($status === 402) {
+                        Log::warning("HF {$tokenLabel} quota exceeded, skipping to next key");
+                        $this->quotaExceeded[] = "HuggingFace {$tokenLabel}";
+                        break;
+                    }
+                    
+                    // Handle rate limit (429) - retry with backoff
+                    if ($status === 429 && $i < $retries - 1) {
+                        $sleepTime = pow(2, $i);
+                        Log::info("HF {$tokenLabel} rate limited, waiting {$sleepTime}s before retry...");
+                        sleep($sleepTime);
+                        continue;
+                    }
                     
                     if ($i < $retries - 1) {
                         $sleepTime = pow(2, $i);
@@ -472,7 +580,7 @@ Begin writing the blog post now:";
                     }
 
                 } catch (\Exception $e) {
-                    Log::error("HF API ({$tokenLabel} key) Attempt " . ($i + 1) . " failed: " . $e->getMessage());
+                    Log::error("HF API ({$tokenLabel}) Attempt " . ($i + 1) . " failed: " . $e->getMessage());
                     if ($i < $retries - 1) {
                         $sleepTime = pow(2, $i);
                         sleep($sleepTime);

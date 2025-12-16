@@ -73,6 +73,34 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
     - Job retry with backoff delays: 60s, 300s, 600s
     - Auto-detects quota errors (402/429) and delays re-queue
 
+- **🆕 API Resilience & Multi-Key Support** (v3.0):
+  - **Array-Based API Keys**:
+    - Support for multiple API keys per provider: `GEMINI_API_KEY_ARR=["key1","key2","key3"]`
+    - Automatic key rotation on rate limits (429) with exponential backoff (2s, 4s, 8s)
+    - Immediate skip to next key on quota exceeded (402/403)
+    - Quota tracking for email notifications
+  - **Mediastack News API Integration**:
+    - Primary source for trending topics and research
+    - Real-time news from 50+ sources
+    - Automatic fallback to RSS on quota/errors
+    - Snippet truncation to 1000 chars for optimal processing
+  - **Enhanced Duplicate Detection**:
+    - LIKE check + `similar_text()` similarity (>80% threshold)
+    - 5-retry mechanism (optimized from 10)
+    - Detailed logging of similarity scores
+    - Email notification when all retries exhausted
+  - **Strict Scheduler Enforcement**:
+    - Exactly 5 blogs per day (no more, no less)
+    - Minimum 3.5hr (210 min) gaps between posts
+    - Random jitter (0-120 min) for organic distribution
+    - Email alerts for scheduler issues
+  - **Comprehensive Email Notifications**:
+    - Success: Blog title, link, thumbnail, generation time
+    - Failure: Error cause, stack trace, detailed logs
+    - Duplicate: Attempted topics, similarity scores
+    - Quota: APIs that exceeded quota, fallback chain used
+    - No Categories: Alert when database is empty
+
 - **🆕 Custom Prompt Feature** (v2.0):
   - **Admin UI**: Add specific instructions via custom prompt field (max 2000 chars)
   - **Smart Scraping**: Auto-detects URLs in prompt, scrapes content, and injects it as context.
@@ -93,6 +121,7 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
   - **Google Gemini API** (Primary Content & Analysis)
   - **Hugging Face Inference API** (Redundancy & Image Generation)
   - **OpenRouter API** (Tertiary Fallback - 3 free models)
+  - **Mediastack News API** (Trending Topics & Research)
 - **Scraping**: Guzzle, Symfony DomCrawler
 - **SEO**: spatie/laravel-sitemap
 - **Research**: Serper API (Google Search fallback)
@@ -129,12 +158,23 @@ DB_DATABASE=auto_blog
 DB_USERNAME=root
 DB_PASSWORD=
 
-# AI API Keys - Triple Redundancy Architecture
-HUGGINGFACE_API_KEY=your_hf_key_here
-HUGGINGFACE_API_KEY_FALLBACK=your_backup_hf_key  # Optional
-GEMINI_API_KEY=your_gemini_key_here
-GEMINI_API_KEY_FALLBACK=your_backup_gemini_key  # Optional
-OPEN_ROUTER_KEY=your_openrouter_key  # Optional - Free tier available
+# AI API Keys - Array Format (v3.0+)
+# New: Support for multiple keys with automatic rotation
+GEMINI_API_KEY_ARR=["your_gemini_key_1","your_gemini_key_2","your_gemini_key_3"]
+HUGGINGFACE_API_KEY_ARR=["your_hf_key_1","your_hf_key_2"]
+
+# Legacy format still supported (backward compatible)
+# GEMINI_API_KEY=your_gemini_key_here
+# GEMINI_API_KEY_FALLBACK=your_backup_gemini_key
+# HUGGINGFACE_API_KEY=your_hf_key_here
+# HUGGINGFACE_API_KEY_FALLBACK=your_backup_hf_key
+
+# OpenRouter API (Free tier available)
+OPEN_ROUTER_KEY=your_openrouter_key  # Optional
+
+# Mediastack News API (v3.0+)
+# Get your free key at: https://mediastack.com/
+MEDIA_STACK_KEY=your_mediastack_key  # Optional - Falls back to RSS
 
 # Research & SEO
 SERPER_API_KEY=your_serper_key  # Optional - For web search fallback
@@ -145,7 +185,7 @@ MAIL_HOST=smtp.mailtrap.io
 MAIL_PORT=2525
 MAIL_USERNAME=null
 MAIL_PASSWORD=null
-REPORTS_EMAIL=admin@example.com  # Receives quota/error notifications
+REPORTS_EMAIL=admin@example.com  # Receives quota/error/duplicate notifications
 ```
 
 ### 4. Database Setup

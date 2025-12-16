@@ -10,19 +10,41 @@ use Intervention\Image\Drivers\Gd\Driver;
 
 class ThumbnailService
 {
-    protected $geminiKey;
-    protected $geminiKeyFallback;
-    protected $hfToken;
-    protected $hfTokenFallback;
+    protected $geminiKeys = [];
+    protected $hfKeys = [];
     protected $imageManager;
 
     public function __construct()
     {
-        $this->geminiKey = env('GEMINI_API_KEY');
-        $this->geminiKeyFallback = env('GEMINI_API_KEY_FALLBACK');
-        $this->hfToken = env('HUGGINGFACE_API_KEY');
-        $this->hfTokenFallback = env('HUGGINGFACE_API_KEY_FALLBACK');
+        // Load array-based API keys (reuse AIService helper logic)
+        $this->geminiKeys = $this->loadApiKeysArray('GEMINI_API_KEY_ARR');
+        $this->hfKeys = $this->loadApiKeysArray('HUGGINGFACE_API_KEY_ARR');
+        
+        // Backward compatibility
+        if (empty($this->geminiKeys)) {
+            $this->geminiKeys = array_filter([env('GEMINI_API_KEY'), env('GEMINI_API_KEY_FALLBACK')]);
+        }
+        if (empty($this->hfKeys)) {
+            $this->hfKeys = array_filter([env('HUGGINGFACE_API_KEY'), env('HUGGINGFACE_API_KEY_FALLBACK')]);
+        }
+        
         $this->imageManager = new ImageManager(new Driver());
+    }
+    
+    /**
+     * Load API keys from environment variable as JSON array
+     */
+    protected function loadApiKeysArray(string $envKey): array
+    {
+        $value = env($envKey);
+        if (empty($value)) return [];
+        
+        $decoded = json_decode($value, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return array_filter($decoded);
+        }
+        
+        return [$value];
     }
 
     /**
@@ -109,17 +131,14 @@ class ThumbnailService
      */
     protected function generateWithHuggingFace(string $slug, string $title, string $content, string $category, ?int $blogId = null): ?string
     {
-        // Try with primary key first, then fallback
-        $tokens = array_filter([$this->hfToken, $this->hfTokenFallback]);
-        
-        if (empty($tokens)) {
+        if (empty($this->hfKeys)) {
             Log::warning("No HUGGINGFACE_API_KEY configured for thumbnail generation.");
             return null;
         }
 
-        foreach ($tokens as $tokenIndex => $token) {
-            $tokenLabel = $tokenIndex === 0 ? 'primary' : 'fallback';
-            Log::info("Trying HuggingFace image generation with {$tokenLabel} key");
+        foreach ($this->hfKeys as $tokenIndex => $token) {
+            $tokenLabel = "key_" . ($tokenIndex + 1);
+            Log::info("Trying HuggingFace image generation with {$tokenLabel}");
             
             $maxAttempts = 3;
             $attempt = 0;
@@ -338,11 +357,7 @@ class ThumbnailService
      */
     protected function analyzeContent(string $slug, string $title, string $excerpt, string $category, array $topicElements = []): ?array
     {
-        $keys = [];
-        if (!empty($this->geminiKey)) $keys[] = $this->geminiKey;
-        if (!empty($this->geminiKeyFallback)) $keys[] = $this->geminiKeyFallback;
-        
-        if (empty($keys)) {
+        if (empty($this->geminiKeys)) {
             Log::warning("No GEMINI_API_KEY configured for thumbnail analysis.");
             return null;
         }
@@ -375,8 +390,8 @@ CRITICAL REQUIREMENTS:
 4. NO TEXT or LETTERS in the design
 5. Use the detected elements: $elementsText to inform your visual choices";
 
-        foreach ($keys as $index => $apiKey) {
-            $keyName = $index === 0 ? "Primary" : "Fallback";
+        foreach ($this->geminiKeys as $index => $apiKey) {
+            $keyName = "key_" . ($index + 1);
             $maxRetries = 3;
             
             for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {

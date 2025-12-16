@@ -94,6 +94,7 @@ class BlogGeneratorService
 
             // 1. Determine Topic
             $selectedTopic = null;
+            $attemptedTopics = []; // Track for email reporting
             
             if ($customPrompt) {
                  // Optimization: If extracted URL exists, use the prompt text as the topic
@@ -101,14 +102,14 @@ class BlogGeneratorService
                  $selectedTopic = $customPrompt;
                  $logs[] = "Using custom prompt as topic: " . Str::limit($selectedTopic, 50);
             } else {
-                // Standard Flow: RSS
+                // Standard Flow: RSS with enhanced duplicate detection
                 // 1. Get Topics
                 $topics = $this->scraper->fetchTrendingTopics($category->slug);
                 $logs[] = "Fetched " . count($topics) . " topics for category: {$category->name}";
                 
-                // 2. Duplicate Check with Retry Loop (max 10 attempts)
+                // 2. Duplicate Check with Retry Loop (max 5 attempts as per requirements)
                 $attempt = 0;
-                $maxAttempts = 10;
+                $maxAttempts = 5;
                 
                 while ($attempt < $maxAttempts) {
                     if (empty($topics)) {
@@ -118,10 +119,13 @@ class BlogGeneratorService
                     
                     // Pick random topic
                     $candidateTopic = $topics[array_rand($topics)];
+                    $attemptedTopics[] = $candidateTopic;
                     
-                    // Check duplicate
-                    if (Blog::where('title', 'LIKE', "%$candidateTopic%")->exists()) {
-                        $logs[] = "Attempt " . ($attempt + 1) . ": Topic '$candidateTopic' is a duplicate. Retrying...";
+                    // Enhanced duplicate check: LIKE + similarity
+                    $isDuplicate = $this->checkTopicDuplicate($candidateTopic, $logs);
+                    
+                    if ($isDuplicate) {
+                        $logs[] = "Attempt " . ($attempt + 1) . "/$maxAttempts: Topic '$candidateTopic' is a duplicate. Retrying...";
                         // Remove from topics to avoid picking again
                         $topics = array_diff($topics, [$candidateTopic]);
                         $attempt++;
@@ -129,16 +133,31 @@ class BlogGeneratorService
                     }
                     
                     $selectedTopic = $candidateTopic;
-                    $logs[] = "Selected fresh topic: $selectedTopic";
+                    $logs[] = "Selected fresh topic: $selectedTopic (passed duplicate check)";
                     break;
                 }
             }
             
             if (!$selectedTopic) {
-                Log::error("All 10 topic attempts were duplicates for category: {$category->name}");
-                $logs[] = "ERROR: All 10 topic attempts were duplicates";
+                Log::error("All $maxAttempts topic attempts were duplicates for category: {$category->name}");
+                $logs[] = "ERROR: All $maxAttempts topic attempts were duplicates";
+                $logs[] = "Attempted topics: " . implode(", ", $attemptedTopics);
                 $isDuplicate = true;
                 $onProgress && $onProgress('All topics are duplicates, aborting...', 15);
+                
+                // Send email about duplicate exhaustion
+                try {
+                    \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
+                        ->send(new \App\Mail\BlogGenerationReport(
+                            null,
+                            new \Exception("Duplicates exhausted for category: {$category->name}"),
+                            array_merge($logs, ["Attempted topics: " . implode(", ", $attemptedTopics)]),
+                            true // isDuplicate flag
+                        ));
+                } catch (\Exception $mailEx) {
+                    Log::error("Failed to send duplicate exhaustion email: " . $mailEx->getMessage());
+                }
+                
                 return null;
             }
             
@@ -273,6 +292,38 @@ class BlogGeneratorService
         }
         
         return $blog;
+    }
+    
+    /**
+     * Check if topic is duplicate using LIKE and similarity checking
+     * 
+     * @param string $candidateTopic
+     * @param array &$logs Reference to logs array for detailed reporting
+     * @return bool True if duplicate, false if unique
+     */
+    protected function checkTopicDuplicate(string $candidateTopic, array &$logs): bool
+    {
+        // 1. LIKE check (fast, catches exact/substring matches)
+        if (Blog::where('title', 'LIKE', "%$candidateTopic%")->exists()) {
+            $logs[] = "  → LIKE check: Found exact/substring match for '$candidateTopic'";
+            return true;
+        }
+        
+        // 2. Similarity check (catches similar titles with different wording)
+        $existingTitles = Blog::pluck('title')->toArray();
+        
+        foreach ($existingTitles as $existingTitle) {
+            // Calculate similarity using similar_text (Levenshtein-like)
+            similar_text(strtolower($candidateTopic), strtolower($existingTitle), $percent);
+            
+            if ($percent > 80) {
+                $logs[] = "  → Similarity check: '$candidateTopic' is " . round($percent, 1) . "% similar to existing '$existingTitle'";
+                return true;
+            }
+        }
+        
+        $logs[] = "  → Uniqueness check passed for '$candidateTopic'";
+        return false;
     }
 
     /**
