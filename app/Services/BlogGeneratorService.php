@@ -42,50 +42,96 @@ class BlogGeneratorService
             
             // 0. Custom Prompt Handling (URL Extraction)
             $customContext = "";
+            $scrapeUrl = null;
+            $scrapedContent = null;
             if ($customPrompt) {
-                // Check for URL in prompt
-                if (preg_match('/https?:\/\/[^\s]+/', $customPrompt, $matches)) {
-                    $url = $matches[0];
-                    $logs[] = "Detailed custom prompt contains URL: $url. Attempting scrape...";
+                // Capture every URL candidate (handles punctuation and multiple URLs)
+                if (preg_match_all('/https?:\/\/[\w\-\.]+[\w\-\.\~:\/\?\#\[\]\@!\$&\'\(\)\*\+,;=%]+/', $customPrompt, $matches)) {
+                    foreach ($matches[0] as $rawUrl) {
+                        $candidate = rtrim($rawUrl, ".,;\"')>");
+                        if (filter_var($candidate, FILTER_VALIDATE_URL)) {
+                            $scrapeUrl = $candidate;
+                            break;
+                        }
+                        $logs[] = "Warning: Invalid URL format detected: $rawUrl";
+                    }
+                }
+
+                if ($scrapeUrl) {
+                    $logs[] = "Detailed custom prompt contains valid URL: $scrapeUrl. Attempting scrape...";
                     
                     try {
-                        $scrapedContent = $this->scraper->scrapeContent($url);
+                        $scrapedContent = $this->scraper->scrapeContent($scrapeUrl);
                         if ($scrapedContent) {
-                            $customContext = "\n\n[USER PROVIDED SOURCE CONTENT START]\n" . Str::limit($scrapedContent, 5000) . "\n[USER PROVIDED SOURCE CONTENT END]\n";
+                            // Truncate to 3000 chars to save tokens but keep "juicy" parts
+                            $truncatedContent = Str::limit($scrapedContent, 3000);
+                            
+                            // Enhanced Context for Tool Blogs
+                            // We inject specific instructions to treat this as a Tool/Site review
+                            $customContext = "\n\n[USER PROVIDED SOURCE CONTENT START]\n" . $truncatedContent . "\n[USER PROVIDED SOURCE CONTENT END]\n";
+                            $customContext .= "\nIMPORTANT INSTRUCTIONS:\n";
+                            $customContext .= "1. Write a comprehensive SEO blog for the tool/site at [$scrapeUrl].\n";
+                            $customContext .= "2. Cover: Core Features, How It Works, Pros & Cons, and Use Cases.\n";
+                            $customContext .= "3. Include a Comparison section (e.g., vs competitors like Remove.bg, ChatGPT, etc. if relevant).\n";
+                            $customContext .= "4. MUST insert a dofollow link (rel='dofollow') to <a href='$scrapeUrl'>the official site</a> in the introduction or conclusion.\n";
+                            
                             $logs[] = "Successfully scraped content from user URL";
                         } else {
-                            $logs[] = "Warning: Scraped content was empty";
-                            $customContext = "\n\n[Note: User provided URL $url but scraping returned no content. Proceed with general knowledge.]\n";
+                            $logs[] = "Warning: Unable to access site content for $scrapeUrl (empty response)";
+                            $customContext = "\n\n[Unable to access site content for $scrapeUrl. Proceed using general knowledge about this tool/site.]\n";
                         }
                     } catch (\Exception $e) {
-                         Log::warning("Failed to scrape user URL: " . $e->getMessage());
-                         $logs[] = "Warning: Failed to scrape user URL ($url). Proceeding without it.";
-                         $customContext = "\n\n[Note: User provided URL $url but scraping failed. Proceed with general knowledge.]\n";
+                        Log::warning("Failed to scrape user URL ($scrapeUrl): " . $e->getMessage());
+                        $logs[] = "Warning: Unable to access site content for $scrapeUrl (exception caught)";
+                        $customContext = "\n\n[Unable to access site content for $scrapeUrl. Proceed using general knowledge about this tool/site.]\n";
                     }
                 }
             }
-
-            // 1. Get Topics
-            $topics = $this->scraper->fetchTrendingTopics($category->slug);
-            $logs[] = "Fetched " . count($topics) . " topics for category: {$category->name}";
             
-            // 2. Duplicate Check with Retry Loop (max 10 attempts)
-            $attempt = 0;
-            $maxAttempts = 10;
+            if ($customPrompt) {
+                $customContext .= $this->buildToolIntelligenceBlock($customPrompt, $scrapedContent, $scrapeUrl);
+            }
+
+            // 1. Determine Topic
             $selectedTopic = null;
             
-            while ($attempt < $maxAttempts) {
-                $topic = $topics[array_rand($topics)];
+            if ($customPrompt) {
+                 // Optimization: If extracted URL exists, use the prompt text as the topic
+                 // This ensures the custom request is honored without interference from RSS/duplicates
+                 $selectedTopic = $customPrompt;
+                 $logs[] = "Using custom prompt as topic: " . Str::limit($selectedTopic, 50);
+            } else {
+                // Standard Flow: RSS
+                // 1. Get Topics
+                $topics = $this->scraper->fetchTrendingTopics($category->slug);
+                $logs[] = "Fetched " . count($topics) . " topics for category: {$category->name}";
                 
-                if (!Blog::where('title', 'LIKE', "%$topic%")->exists()) {
-                    $selectedTopic = $topic;
-                    $logs[] = "Selected topic: $topic (attempt $attempt)";
+                // 2. Duplicate Check with Retry Loop (max 10 attempts)
+                $attempt = 0;
+                $maxAttempts = 10;
+                
+                while ($attempt < $maxAttempts) {
+                    if (empty($topics)) {
+                        $logs[] = "No topics available from RSS. Using fallbacks.";
+                        $topics = $this->scraper->fetchFallbackTopics($category->slug);
+                    }
+                    
+                    // Pick random topic
+                    $candidateTopic = $topics[array_rand($topics)];
+                    
+                    // Check duplicate
+                    if (Blog::where('title', 'LIKE', "%$candidateTopic%")->exists()) {
+                        $logs[] = "Attempt " . ($attempt + 1) . ": Topic '$candidateTopic' is a duplicate. Retrying...";
+                        // Remove from topics to avoid picking again
+                        $topics = array_diff($topics, [$candidateTopic]);
+                        $attempt++;
+                        continue; 
+                    }
+                    
+                    $selectedTopic = $candidateTopic;
+                    $logs[] = "Selected fresh topic: $selectedTopic";
                     break;
                 }
-                
-                Log::info("Retry $attempt: Topic '$topic' is duplicate, trying another...");
-                $logs[] = "Retry $attempt: Topic '$topic' is duplicate, trying another...";
-                $attempt++;
             }
             
             if (!$selectedTopic) {
@@ -792,7 +838,7 @@ class BlogGeneratorService
             'logs' => $logs
         ];
     }
-    
+
     protected function isValidUrl(string $url, bool $returnDetails = false)
     {
         // Simple filter var check first
@@ -857,5 +903,69 @@ class BlogGeneratorService
         }
         
         return $returnDetails ? ['valid' => false, 'reason' => 'Unknown Failure'] : false;
+    }
+
+    /**
+     * Build extra AI context for custom tool prompts so we stay on-topic.
+     */
+    protected function buildToolIntelligenceBlock(string $customPrompt, ?string $scrapedContent, ?string $scrapeUrl): string
+    {
+        $haystack = mb_strtolower($customPrompt . ' ' . ($scrapedContent ?? ''));
+
+        $intentSignals = [
+            'image_compression' => ['image compressor', 'image compression', 'compress images', 'optimize image', 'reduce image size', 'lossless compression', 'webp', 'jpeg compression'],
+            'background_removal' => ['background remover', 'remove background', 'bg remover', 'clean background', 'cutout'],
+            'conversion' => ['image converter', 'convert images', 'format converter', 'jpg to png', 'png to webp', 'webp to jpg'],
+        ];
+
+        $competitors = [
+            'image_compression' => ['TinyPNG', 'Kraken.io', 'Optimizilla'],
+            'background_removal' => ['Remove.bg', 'Cleanup.pictures', 'Adobe Express Background Remover'],
+            'conversion' => ['CloudConvert', 'Convertio', 'Zamzar'],
+        ];
+
+        $seoTalkingPoints = [
+            'image_compression' => 'Explain how lean images improve Core Web Vitals (LCP, CLS) and overall SEO performance.',
+            'background_removal' => 'Show how clean cut-outs accelerate ad creatives, ecommerce PDPs, and social posts.',
+            'conversion' => 'Highlight why multi-format delivery keeps omnichannel experiences consistent and fast.',
+        ];
+
+        $detectedIntents = [];
+        foreach ($intentSignals as $intent => $needles) {
+            foreach ($needles as $needle) {
+                if (str_contains($haystack, $needle)) {
+                    $detectedIntents[] = $intent;
+                    break;
+                }
+            }
+        }
+
+        $block = "\n\n[TOOL INTELLIGENCE BLOCK]\n";
+        $block .= "Treat this as a senior-level review for the referenced tool. Use scraped copy as factual source material and expand it with your own analysis.\n";
+
+        if ($scrapeUrl) {
+            $block .= "Primary Tool URL: {$scrapeUrl} (must be cited with at least one dofollow link in intro or conclusion).\n";
+        }
+
+        if (empty($detectedIntents)) {
+            $block .= "- Identify the product category and describe why it matters for SEO, UX, and conversions.\n";
+            $block .= "- Surface at least three competing tools, comparing pricing, automation depth, and unique workflows.\n";
+        } else {
+            foreach (array_unique($detectedIntents) as $intent) {
+                $competitorList = implode(', ', $competitors[$intent]);
+                $block .= "- Competitor Spotlight ({$intent}): {$competitorList}. Compare compression quality, automation, pricing tiers, and API access.\n";
+                if (isset($seoTalkingPoints[$intent])) {
+                    $block .= "- {$seoTalkingPoints[$intent]}\n";
+                }
+            }
+        }
+
+        $block .= "- Detail why this workflow is essential (tie it to rankings, conversions, or time saved).\n";
+        $block .= "- Provide at least 3 actionable steps: onboarding, everyday usage, and optimization tips.\n";
+        $block .= "- Include one section dedicated to \"Why this matters for SEO & performance\" and another for \"Alternative tools & when to pick them\".\n";
+
+        $block .= "[END TOOL INTELLIGENCE BLOCK]\n";
+
+        return $block;
     }
 }
