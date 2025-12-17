@@ -12,8 +12,9 @@ class LinkDiscoveryService
 {
     protected $serperKey;
     protected $client;
+    protected $scrapingHub;
 
-    public function __construct()
+    public function __construct(?ScrapingHubService $scrapingHub = null)
     {
         $this->serperKey = env('SERPER_API_KEY');
         $this->client = new Client([
@@ -23,6 +24,9 @@ class LinkDiscoveryService
                 'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             ]
         ]);
+        
+        // Inject ScrapingHubService
+        $this->scrapingHub = $scrapingHub ?? app(ScrapingHubService::class);
     }
 
     /**
@@ -45,7 +49,33 @@ class LinkDiscoveryService
         $query = "$topic $category related articles 2025";
         $urls = [];
 
-        // Try Serper API first
+        // Try Scraping Hub API first
+        if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
+            try {
+                Log::info("Attempting link discovery via Scraping Hub: $query");
+                $results = $this->scrapingHub->search($query, 10);
+                
+                if ($results && count($results) > 0) {
+                    foreach ($results as $result) {
+                        if (isset($result['url']) && filter_var($result['url'], FILTER_VALIDATE_URL)) {
+                            $urls[] = $result['url'];
+                        }
+                    }
+                    
+                    if (!empty($urls)) {
+                        Log::info("Scraping Hub link discovery found " . count($urls) . " URLs");
+                        Cache::put($cacheKey, $urls, now()->addHours(24));
+                        return $urls;
+                    }
+                }
+                
+                Log::info("Scraping Hub returned no URLs, falling back");
+            } catch (\Exception $e) {
+                Log::warning("Scraping Hub link discovery failed: {$e->getMessage()}, falling back");
+            }
+        }
+
+        // Try Serper API second
         if (!empty($this->serperKey)) {
             $urls = $this->searchSerper($query);
         }
@@ -154,6 +184,24 @@ class LinkDiscoveryService
      */
     public function extractSnippet(string $url): ?string
     {
+        // Try Scraping Hub API first
+        if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
+            try {
+                Log::info("Attempting snippet extraction via Scraping Hub: $url");
+                $result = $this->scrapingHub->scrape($url);
+                
+                if ($result && !empty($result['snippet'])) {
+                    Log::info("Successfully extracted snippet via Scraping Hub: $url");
+                    return $result['snippet'];
+                }
+                
+                Log::info("Scraping Hub returned no snippet, falling back to Guzzle");
+            } catch (\Exception $e) {
+                Log::warning("Scraping Hub snippet extraction failed: {$e->getMessage()}, falling back");
+            }
+        }
+        
+        // Fallback to Guzzle/Crawler
         try {
             $response = $this->client->get($url);
             $html = $response->getBody()->getContents();

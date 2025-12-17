@@ -98,7 +98,22 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
     - Success: Blog title, link, thumbnail, generation time
     - Failure: Error cause, stack trace, detailed logs
     - Duplicate: Attempted topics, similarity scores
-    - Quota: APIs that exceeded quota, fallback chain used
+    - Quota Exceeded: API provider, remaining keys, next retry time
+- **🆕 Scraping Hub API Integration** (v4.0):
+  - **Primary Scraping Source**:
+    - Dedicated scraping API for topics, content, and link discovery
+    - Health check with 1-hour caching
+    - Retry logic (3 attempts) with exponential backoff for rate limits
+    - Response caching (1 hour per query/URL)
+  - **Intelligent Fallback Chain**:
+    - **Topics**: Scraping Hub → Mediastack → RSS → Fallback
+    - **Content**: Scraping Hub → Guzzle/Crawler
+    - **Research**: Scraping Hub → Mediastack → Wikipedia → Web Search
+    - **Links**: Scraping Hub → Serper → DuckDuckGo
+  - **Automatic Error Recovery**:
+    - Email notifications on persistent failures
+    - URL validation and content truncation
+    - Zero disruption - falls back seamlessly if unavailable
     - No Categories: Alert when database is empty
 
 - **🆕 Custom Prompt Feature** (v2.0):
@@ -175,6 +190,11 @@ OPEN_ROUTER_KEY=your_openrouter_key  # Optional
 # Mediastack News API (v3.0+)
 # Get your free key at: https://mediastack.com/
 MEDIA_STACK_KEY=your_mediastack_key  # Optional - Falls back to RSS
+
+# Scraping Hub API (v4.0+) - Primary Scraping Source
+# Get your MASTER_KEY from: https://scraping-hub-backend-only.vercel.app
+SCRAPING_HUB_BASE_URL=https://scraping-hub-backend-only.vercel.app
+MASTER_KEY=your_master_key_here  # Optional - Falls back to Mediastack/RSS
 
 # Research & SEO
 SERPER_API_KEY=your_serper_key  # Optional - For web search fallback

@@ -61,8 +61,37 @@
                     .prose table th { background-color: #3b82f6; color: white; padding: 1rem; text-align: left; font-weight: 600; }
                     .prose table td { padding: 1rem; border-bottom: 1px solid #d1d5db; color: #4b5563; }
                     .prose table tbody tr:nth-child(odd) { background-color: #f9fafb; }
-                    .prose table tbody tr:nth-child(odd) { background-color: #f9fafb; }
                     .prose table tbody tr:hover { background-color: #f3f4f6; }
+                    
+                    /* Mobile Table Responsiveness */
+                    @media (max-width: 768px) {
+                        .prose table {
+                            display: block;
+                            overflow-x: auto;
+                            -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+                            white-space: nowrap;
+                            margin: 1.5rem -1rem; /* Extend to edges on mobile */
+                            border-radius: 0;
+                        }
+                        
+                        .prose table th,
+                        .prose table td {
+                            padding: 0.75rem; /* Slightly smaller padding on mobile */
+                            font-size: 0.875rem; /* Smaller font for better fit */
+                        }
+                        
+                        /* Scroll indicator shadow */
+                        .prose table::after {
+                            content: '';
+                            position: absolute;
+                            right: 0;
+                            top: 0;
+                            bottom: 0;
+                            width: 30px;
+                            background: linear-gradient(to left, rgba(255,255,255,0.9), transparent);
+                            pointer-events: none;
+                        }
+                    }
                     
                     /* Link Styling */
                     .prose a { color: #2563eb; text-decoration: underline; text-decoration-thickness: 1px; }

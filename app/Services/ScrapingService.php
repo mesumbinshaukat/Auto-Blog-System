@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 class ScrapingService
 {
     protected $client;
+    protected $scrapingHub;
 
     // Lawful RSS Sources (Public feeds, no AI prohibition found in basic checks)
     protected $rssSources = [
@@ -52,7 +53,7 @@ class ScrapingService
         ]
     ];
 
-    public function __construct()
+    public function __construct(?ScrapingHubService $scrapingHub = null)
     {
         $this->client = new Client([
             'timeout'  => 15.0, // Increased timeout for multiple RSS fetches
@@ -61,6 +62,9 @@ class ScrapingService
                 'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             ]
         ]);
+        
+        // Inject ScrapingHubService (will be null if not configured)
+        $this->scrapingHub = $scrapingHub ?? app(ScrapingHubService::class);
     }
 
     /**
@@ -205,7 +209,35 @@ class ScrapingService
     {
         $category = strtolower($category);
         
-        // Try Mediastack first
+        // Try Scraping Hub API first
+        if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
+            try {
+                Log::info("Attempting to fetch topics from Scraping Hub for category: $category");
+                $query = "$category related articles " . date('Y');
+                $results = $this->scrapingHub->search($query, 20);
+                
+                if ($results && count($results) >= 5) {
+                    $topics = [];
+                    foreach ($results as $result) {
+                        if (isset($result['title']) && !empty($result['title'])) {
+                            $topics[] = trim($result['title']);
+                        }
+                        if (count($topics) >= 10) break;
+                    }
+                    
+                    if (count($topics) >= 5) {
+                        Log::info("Using Scraping Hub topics for category: $category (" . count($topics) . " topics)");
+                        return $topics;
+                    }
+                }
+                
+                Log::info("Scraping Hub returned insufficient topics, falling back");
+            } catch (\Exception $e) {
+                Log::warning("Scraping Hub search failed: {$e->getMessage()}, falling back");
+            }
+        }
+        
+        // Try Mediastack second
         $mediastackTopics = $this->fetchTrendingTopicsWithMediastack($category);
         if ($mediastackTopics && count($mediastackTopics) >= 5) {
             Log::info("Using Mediastack topics for category: $category");
@@ -307,6 +339,24 @@ class ScrapingService
 
     public function scrapeContent(string $url): string
     {
+        // Try Scraping Hub API first
+        if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
+            try {
+                Log::info("Attempting to scrape URL via Scraping Hub: $url");
+                $result = $this->scrapingHub->scrape($url);
+                
+                if ($result && !empty($result['content'])) {
+                    Log::info("Successfully scraped URL via Scraping Hub: $url");
+                    return $result['content'];
+                }
+                
+                Log::info("Scraping Hub returned no content, falling back to Guzzle");
+            } catch (\Exception $e) {
+                Log::warning("Scraping Hub scrape failed: {$e->getMessage()}, falling back to Guzzle");
+            }
+        }
+        
+        // Fallback to Guzzle/Crawler
         try {
             // Simple sleep for politeness
             usleep(500000); // 0.5s
@@ -351,13 +401,44 @@ class ScrapingService
     {
         $researchData = [];
         
-        // 0. Try Mediastack News API first
+        // 0. Try Scraping Hub API first
+        if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
+            try {
+                Log::info("Attempting to research topic via Scraping Hub: $topic");
+                $results = $this->scrapingHub->search($topic, 5);
+                
+                if ($results && count($results) > 0) {
+                    $scrapingHubData = [];
+                    foreach ($results as $result) {
+                        $title = $result['title'] ?? 'Untitled';
+                        $url = $result['url'] ?? '';
+                        $snippet = $result['snippet'] ?? '';
+                        
+                        // Truncate snippet
+                        $snippet = $this->truncateSnippet($snippet, 1000);
+                        
+                        $scrapingHubData[] = "Source: Scraping Hub ($title)\nFrom: $url\n$snippet";
+                        
+                        if (count($scrapingHubData) >= 3) break;
+                    }
+                    
+                    if (!empty($scrapingHubData)) {
+                        $researchData[] = "Research findings from Scraping Hub:\n" . implode("\n\n", $scrapingHubData);
+                        Log::info("Scraping Hub research found " . count($scrapingHubData) . " articles for topic: $topic");
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning("Scraping Hub research failed: {$e->getMessage()}");
+            }
+        }
+        
+        // 1. Try Mediastack News API
         $mediastackResearch = $this->researchTopicWithMediastack($topic);
         if ($mediastackResearch) {
             $researchData[] = $mediastackResearch;
         }
         
-        // 1. Wikipedia Search API (Better reliably than guessing URL)
+        // 2. Wikipedia Search API (Better reliably than guessing URL)
         try {
             $searchUrl = "https://en.wikipedia.org/w/api.php";
             Log::info("Searching Wikipedia API for: $topic");
