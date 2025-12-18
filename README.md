@@ -100,21 +100,24 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
     - Duplicate: Attempted topics, similarity scores
     - Quota Exceeded: API provider, remaining keys, next retry time
 - **🆕 Scraping Hub API Integration** (v4.0):
-  - **Primary Scraping Source**:
-    - Dedicated scraping API for topics, content, and link discovery
-    - Health check with 1-hour caching
-    - Retry logic (3 attempts) with exponential backoff for rate limits
-    - Response caching (1 hour per query/URL)
-  - **Intelligent Fallback Chain**:
-    - **Topics**: Scraping Hub → Mediastack → RSS → Fallback
-    - **Content**: Scraping Hub → Guzzle/Crawler
-    - **Research**: Scraping Hub → Mediastack → Wikipedia → Web Search
-    - **Links**: Scraping Hub → Serper → DuckDuckGo
-  - **Automatic Error Recovery**:
-    - Email notifications on persistent failures
-    - URL validation and content truncation
-    - Zero disruption - falls back seamlessly if unavailable
-    - No Categories: Alert when database is empty
+  - **Professional Data Normalization**:
+    - Unified parsing for `/news`, `/search`, and `/blog` with explicit data mapping.
+    - Captures and logs API `message` when results are empty for better diagnostics.
+    - Normalized output fields: `url`, `title`, `snippet`, `source`.
+  - **Diagnostic Command Suite**:
+    - `php artisan blog:scrapinghub-test`: Tests all 9 major endpoints (Stats, Resources, Scrape, etc.).
+    - Automated query handling (confirmed working terms: "tech", "technology").
+    - Detailed per-endpoint feedback with title/content-length previews.
+  - **Enhanced Health Monitoring**:
+    - `php artisan blog:api-health`: Now displays live healthy node counts and total daily requests.
+    - 1-hour caching for health and 24-hour caching for search/scraping results.
+  - **Deep Integration & Fallbacks**:
+    - **RSS**: `ScrapingService` now tries Scraping Hub RSS as the primary fallback before Guzzle.
+    - **Topic Discovery**: Prioritizes Scraping Hub for high-quality trending links.
+    - **Scrape & Snippet**: Used as the primary engine in `LinkDiscoveryService`.
+  - **Automatic Resilience**:
+    - Temporary API disabling and email alerts for auth/quota (401-403) errors.
+    - Exponential backoff (up to 3 attempts) for server-side rate limits.
 
 - **🆕 Custom Prompt Feature** (v2.0):
   - **Admin UI**: Add specific instructions via custom prompt field (max 2000 chars)

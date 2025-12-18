@@ -107,9 +107,9 @@ class BlogGeneratorService
                 $topics = $this->scraper->fetchTrendingTopics($category->slug);
                 $logs[] = "Fetched " . count($topics) . " topics for category: {$category->name}";
                 
-                // 2. Duplicate Check with Retry Loop (max 5 attempts as per requirements)
+                // 2. Duplicate Check with Retry Loop (max 10 attempts as per requirements)
                 $attempt = 0;
-                $maxAttempts = 5;
+                $maxAttempts = 10;
                 
                 while ($attempt < $maxAttempts) {
                     if (empty($topics)) {
@@ -147,10 +147,11 @@ class BlogGeneratorService
                 
                 // Send email about duplicate exhaustion
                 try {
-                    \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
+                    $reportEmail = env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com');
+                    \Illuminate\Support\Facades\Mail::to($reportEmail)
                         ->send(new \App\Mail\BlogGenerationReport(
                             null,
-                            new \Exception("Duplicates exhausted for category: {$category->name}"),
+                            new \Exception("Duplicates exhausted for {$category->name}"),
                             array_merge($logs, ["Attempted topics: " . implode(", ", $attemptedTopics)]),
                             true // isDuplicate flag
                         ));

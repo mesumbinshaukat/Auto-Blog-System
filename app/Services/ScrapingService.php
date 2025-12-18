@@ -213,8 +213,8 @@ class ScrapingService
         if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
             try {
                 Log::info("Attempting to fetch topics from Scraping Hub for category: $category");
-                $query = "$category related articles " . date('Y');
-                $results = $this->scrapingHub->search($query, 20);
+                $query = "$category related articles 2025";
+                $results = $this->scrapingHub->news($query, 20);
                 
                 if ($results && count($results) >= 5) {
                     $topics = [];
@@ -222,18 +222,19 @@ class ScrapingService
                         if (isset($result['title']) && !empty($result['title'])) {
                             $topics[] = trim($result['title']);
                         }
-                        if (count($topics) >= 10) break;
                     }
+                    
+                    $topics = array_unique($topics);
                     
                     if (count($topics) >= 5) {
                         Log::info("Using Scraping Hub topics for category: $category (" . count($topics) . " topics)");
-                        return $topics;
+                        return array_slice($topics, 0, 10);
                     }
                 }
                 
-                Log::info("Scraping Hub returned insufficient topics, falling back");
+                Log::info("Scraping Hub topics failed or empty, falling back");
             } catch (\Exception $e) {
-                Log::warning("Scraping Hub search failed: {$e->getMessage()}, falling back");
+                Log::warning("ScrapingHub topics fail: {$e->getMessage()}, falling back");
             }
         }
         
@@ -257,53 +258,84 @@ class ScrapingService
         foreach ($sources as $url) {
             try {
                 Log::info("Fetching RSS from: $url");
-                $response = $this->client->get($url);
                 
-                // Check for 404 specifically
-                if ($response->getStatusCode() === 404) {
-                    Log::warning("RSS $url returned 404, skipping");
-                    continue;
-                }
+                $items = null;
                 
-                $xmlContent = $response->getBody()->getContents();
-                
-                // Check for empty response
-                if (empty(trim($xmlContent))) {
-                    Log::warning("RSS $url returned empty content, skipping");
-                    continue;
-                }
-                
-                // Parse RSS
-                $rss = simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NOCDATA);
-                
-                if ($rss === false) {
-                    Log::warning("RSS $url failed to parse XML, skipping");
-                    continue;
+                // Try Scraping Hub RSS first
+                if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
+                    $results = $this->scrapingHub->rss($url);
+                    if ($results && count($results) > 0) {
+                        Log::info("Successfully fetched RSS via Scraping Hub: $url");
+                        $items = $results;
+                    }
                 }
 
-                $items = $rss->channel->item ?? $rss->entry ?? []; // Handle RSS 2.0 and Atom
-                
-                // Check for empty feed
-                if (empty($items)) {
-                    Log::warning("RSS $url returned empty feed, skipping");
-                    continue;
-                }
-                
-                $itemCount = 0;
-                foreach ($items as $item) {
-                    $title = (string)$item->title;
-                    $pubDate = strtotime((string)($item->pubDate ?? $item->updated ?? 'now'));
+                if ($items) {
+                    $itemCount = 0;
+                    foreach ($items as $item) {
+                        $title = $item['title'] ?? '';
+                        // Filter: Only recent (last 7 days) if pubDate exists
+                        $pubDateStr = $item['pubDate'] ?? '';
+                        $isRecent = true;
+                        if (!empty($pubDateStr)) {
+                            $pubDate = strtotime($pubDateStr);
+                            if ($pubDate && (time() - $pubDate > 604800)) {
+                                $isRecent = false;
+                            }
+                        }
+                        
+                        if ($isRecent && !empty($title)) {
+                            $topics[] = trim($title);
+                            $itemCount++;
+                        }
+
+                        if (count($topics) >= 5) break;
+                    }
+                    Log::info("RSS $url (via ScrapingHub) returned $itemCount recent topics");
+                } else {
+                    // Fallback to manual Guzzle
+                    $response = $this->client->get($url);
                     
-                    // Filter: Only recent (last 7 days)
-                    if (time() - $pubDate < 604800) { 
-                        $topics[] = trim($title);
-                        $itemCount++;
+                    if ($response->getStatusCode() === 404) {
+                        Log::warning("RSS $url returned 404, skipping");
+                        continue;
+                    }
+                    
+                    $xmlContent = $response->getBody()->getContents();
+                    
+                    if (empty(trim($xmlContent))) {
+                        Log::warning("RSS $url returned empty content, skipping");
+                        continue;
+                    }
+                    
+                    $rss = simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NOCDATA);
+                    
+                    if ($rss === false) {
+                        Log::warning("RSS $url failed to parse XML, skipping");
+                        continue;
                     }
 
-                    if (count($topics) >= 5) break; // Limit per source
+                    $rssItems = $rss->channel->item ?? $rss->entry ?? [];
+                    
+                    if (empty($rssItems)) {
+                        Log::warning("RSS $url returned empty feed, skipping");
+                        continue;
+                    }
+                    
+                    $itemCount = 0;
+                    foreach ($rssItems as $item) {
+                        $title = (string)$item->title;
+                        $pubDate = strtotime((string)($item->pubDate ?? $item->updated ?? 'now'));
+                        
+                        if (time() - $pubDate < 604800) { 
+                            $topics[] = trim($title);
+                            $itemCount++;
+                        }
+
+                        if (count($topics) >= 5) break;
+                    }
+                    Log::info("RSS $url (via Guzzle) returned $itemCount recent topics");
                 }
-                
-                Log::info("RSS $url returned $itemCount recent topics");
 
             } catch (\GuzzleHttp\Exception\ClientException $e) {
                 if ($e->getResponse()->getStatusCode() === 404) {
@@ -404,7 +436,17 @@ class ScrapingService
         // 0. Try Scraping Hub API first
         if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
             try {
-                Log::info("Attempting to research topic via Scraping Hub: $topic");
+                // Check if topic contains a URL
+                if (preg_match('/https?:\/\/[^\s]+/', $topic, $matches)) {
+                    $url = $matches[0];
+                    Log::info("Topic contains URL, scraping via Scraping Hub: $url");
+                    $scraped = $this->scrapingHub->scrape($url);
+                    if ($scraped && !empty($scraped['content'])) {
+                        $researchData[] = "Scraped content from URL ($url):\n" . $scraped['content'];
+                    }
+                }
+
+                Log::info("Attempting to research topic via Scraping Hub search: $topic");
                 $results = $this->scrapingHub->search($topic, 5);
                 
                 if ($results && count($results) > 0) {
@@ -414,16 +456,13 @@ class ScrapingService
                         $url = $result['url'] ?? '';
                         $snippet = $result['snippet'] ?? '';
                         
-                        // Truncate snippet
-                        $snippet = $this->truncateSnippet($snippet, 1000);
-                        
                         $scrapingHubData[] = "Source: Scraping Hub ($title)\nFrom: $url\n$snippet";
                         
                         if (count($scrapingHubData) >= 3) break;
                     }
                     
                     if (!empty($scrapingHubData)) {
-                        $researchData[] = "Research findings from Scraping Hub:\n" . implode("\n\n", $scrapingHubData);
+                        $researchData[] = "Research findings from Scraping Hub Search:\n" . implode("\n\n", $scrapingHubData);
                         Log::info("Scraping Hub research found " . count($scrapingHubData) . " articles for topic: $topic");
                     }
                 }

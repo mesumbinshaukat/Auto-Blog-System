@@ -190,12 +190,14 @@ class LinkDiscoveryService
                 Log::info("Attempting snippet extraction via Scraping Hub: $url");
                 $result = $this->scrapingHub->scrape($url);
                 
-                if ($result && !empty($result['snippet'])) {
+                $snippet = $result['snippet'] ?? $result['content'] ?? '';
+                
+                if (!empty($snippet)) {
                     Log::info("Successfully extracted snippet via Scraping Hub: $url");
-                    return $result['snippet'];
+                    return substr(trim($snippet), 0, 500);
                 }
                 
-                Log::info("Scraping Hub returned no snippet, falling back to Guzzle");
+                Log::info("Scraping Hub returned no snippet/content, falling back to Guzzle");
             } catch (\Exception $e) {
                 Log::warning("Scraping Hub snippet extraction failed: {$e->getMessage()}, falling back");
             }
