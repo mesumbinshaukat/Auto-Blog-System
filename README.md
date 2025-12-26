@@ -144,6 +144,21 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 - **SEO**: spatie/laravel-sitemap
 - **Research**: Serper API (Google Search fallback)
 
+## 🕒 Scheduler & Reliability (v5.0)
+
+This system uses a "poor man's cron" (Terminable Middleware) to run tasks without a server-side crontab. While robust, it has specific requirements:
+
+- **Browser Traffic**: Tasks only run when someone visits the site. If traffic is low, use a real cron job:
+  ```bash
+  * * * * * cd /path-to-your-project && php artisan schedule:run >> /dev/null 2>&1
+  ```
+- **Timeouts**: The middleware is configured with a 900s (15 min) timeout for jobs.
+- **Monitoring**: Automated email alerts for:
+  - **Stalled Scheduler**: If no traffic for >25 hours.
+  - **Worker Failure**: If the background process crashes.
+  - **Stuck Locks**: Automatic detection and recovery.
+
+
 ## 🚀 Installation & Setup
 
 ### 1. Prerequisites
