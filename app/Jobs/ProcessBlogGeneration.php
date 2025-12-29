@@ -15,7 +15,7 @@ class ProcessBlogGeneration implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $categoryId;
+    public $tries = 1;
 
     public function __construct(int $categoryId)
     {
@@ -33,7 +33,6 @@ class ProcessBlogGeneration implements ShouldQueue
             $category = Category::find($this->categoryId);
             if (!$category) {
                 Log::error("Category ID {$this->categoryId} not found for blog generation job.");
-                $logs[] = "ERROR: Category ID {$this->categoryId} not found";
                 return;
             }
 
@@ -50,18 +49,43 @@ class ProcessBlogGeneration implements ShouldQueue
                 $logs[] = "WARNING: Blog generation returned null (likely duplicate)";
             }
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $error = $e;
-            Log::error("Blog generation job failed: " . $e->getMessage());
-            $logs[] = "ERROR: " . $e->getMessage();
+            Log::error("Blog generation job fatal error: " . $e->getMessage());
+            $logs[] = "CRITICAL ERROR: " . $e->getMessage();
+            
+            // Re-throw to ensure Laravel handles it, but our finally block sends the report
+            throw $e;
         } finally {
-            // Send unified email notification
-            try {
-                \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
-                    ->send(new \App\Mail\BlogGenerationReport($blog, $error, $logs, false));
-            } catch (\Exception $mailEx) {
-                Log::error("Failed to send blog generation email: " . $mailEx->getMessage());
+            // Send unified email notification ONLY if it wasn't already sent by the service
+            // The service sends report on its own success/failure. 
+            // We only send here if $error is set (meaning it crashed BEFORE service could report)
+            if ($error) {
+                try {
+                    \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
+                        ->send(new \App\Mail\BlogGenerationReport(null, $error instanceof \Exception ? $error : new \Exception($error->getMessage()), $logs, false));
+                } catch (\Exception $mailEx) {
+                    Log::error("Failed to send emergency job report: " . $mailEx->getMessage());
+                }
             }
+        }
+    }
+
+    /**
+     * Handle a job failure.
+     */
+    public function failed(\Throwable $exception): void
+    {
+        Log::error("ProcessBlogGeneration job permanently failed: " . $exception->getMessage());
+        
+        try {
+            \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
+                ->send(new \App\Mail\SystemErrorReport(
+                    "Job Permanently Failed: ProcessBlogGeneration",
+                    "The blog generation job for Category ID {$this->categoryId} has failed after all attempts.\n\nError: " . $exception->getMessage()
+                ));
+        } catch (\Exception $e) {
+            Log::error("Failed to send job failure alert: " . $e->getMessage());
         }
     }
 }

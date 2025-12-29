@@ -135,14 +135,20 @@ class CheckScheduler
                     $remainingJobs = DB::table('jobs')->count();
                     if ($remainingJobs === 0) break;
 
-                    Artisan::call('queue:work', [
-                        '--once' => true,
-                        '--stop-when-empty' => true,
-                        '--queue' => 'default',
-                        '--memory' => 256,
-                        '--timeout' => 900,
-                        '--tries' => 1
-                    ]);
+                    try {
+                        Artisan::call('queue:work', [
+                            '--once' => true,
+                            '--stop-when-empty' => true,
+                            '--queue' => 'default',
+                            '--memory' => 256,
+                            '--timeout' => 900,
+                            '--tries' => 1
+                        ]);
+                    } catch (\Illuminate\Queue\MaxAttemptsExceededException $e) {
+                         Log::error("Queue Worker: Job max attempts reached. Skipping. " . $e->getMessage());
+                    } catch (\Throwable $e) {
+                         Log::error("Queue Worker: Job failed with error: " . $e->getMessage());
+                    }
 
                     $jobsProcessed++;
 

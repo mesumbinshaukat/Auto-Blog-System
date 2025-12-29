@@ -88,7 +88,7 @@ class GenerateBlogJob implements ShouldQueue
                 ], 600);
             }
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $error = $e;
             $errorMessage = $e->getMessage();
             $attempt = $this->attempts();
