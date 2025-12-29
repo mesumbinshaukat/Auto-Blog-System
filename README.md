@@ -118,6 +118,21 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
   - **Automatic Resilience**:
     - Temporary API disabling and email alerts for auth/quota (401-403) errors.
     - Exponential backoff (up to 3 attempts) for server-side rate limits.
+- **🆕 Ultimate Resiliency & Fallbacks** (v5.0):
+  - **Ultimate Content Fallback**:
+    - **Scraped Content Pipeline**: If all AI providers (Gemini, OpenRouter, HF) fail, the system now automatically extracts, cleans, and formats content from scraped research data.
+    - **DOM-Based Cleaning**: Uses `DOMDocument` to strip noise (ads, scripts, styles) and extract meaningful structure (H1, Paragraphs) from raw HTML/Research.
+    - **Proactive Alerts**: Triggers critical email notifications when the system drops into AI-exhaustion fallback mode.
+  - **Thumbnail Redundancy**:
+    - **Default Thumbnail**: Integrated a professional, abstract static fallback (`images/default-thumbnail.webp`) for when all AI and SVG generation attempts fail.
+    - **WebP Optimized**: Automatically serves a high-quality, lightweight WebP version of the default thumbnail.
+  - **Enhanced Scraping Service**:
+    - **Web Search Integration**: Automatically performs a broad Google Search (via Serper) for "overview of [topic]" if initial research (RSS/Wiki/News) is sparse.
+    - **Top Result Scraping**: Proactively scrapes the top search result to ensure high-quality raw data for generation or fallback.
+  - **Proactive Daily Blog Limits**:
+    - **Hard Limit**: Enforces exactly 5 blogs per 24-hour period via centralized Cache tracking.
+    - **Drift Prevention**: Automatically calculates the remaining balance to schedule, preventing overlap or over-publishing.
+    - **Self-Healing Locks**: Proactively force-releases stuck scheduler/queue locks after 1 hour (enhanced from 10 minutes) with admin alerts.
 
 - **🆕 Custom Prompt Feature** (v2.0):
   - **Admin UI**: Add specific instructions via custom prompt field (max 2000 chars)
