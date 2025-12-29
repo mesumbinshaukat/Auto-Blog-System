@@ -510,26 +510,34 @@ class ScrapingService
                 }
             } else {
                 Log::warning("Wikipedia search returned no results for: $topic");
-                // Try web search fallback
-                $webSearchResult = $this->callWebSearch($topic);
-                if ($webSearchResult) {
-                    $researchData[] = $webSearchResult;
-                }
             }
         } catch (\Exception $e) {
             Log::warning("Wikipedia research failed: " . $e->getMessage());
-            // Try web search fallback on exception
-            try {
-                $webSearchResult = $this->callWebSearch($topic);
-                if ($webSearchResult) {
-                    $researchData[] = $webSearchResult;
-                }
-            } catch (\Exception $webEx) {
-                Log::warning("Web search fallback also failed: " . $webEx->getMessage());
-            }
         }
 
-        // 2. Add more sources here in future (e.g. Bing Search API if key available)
+        // 3. Ultimate Fallback: General Web Search if we have nothing yet (or very little)
+        if (count($researchData) < 2) {
+             try {
+                Log::info("Research data insufficient, performing broad web search for: $topic");
+                $webSearchResult = $this->callWebSearch("overview of $topic");
+                if ($webSearchResult) {
+                    $researchData[] = $webSearchResult;
+                    
+                    // Also try to scrape the first result if it contains a URL
+                    if (preg_match('/https?:\/\/[^\s]+/', $webSearchResult, $urlMatches)) {
+                        $topUrl = rtrim($urlMatches[0], "()");
+                        Log::info("Attempting to scrape top search result: $topUrl");
+                        $scraped = $this->scrapeContent($topUrl);
+                        if (!empty($scraped)) {
+                            // Truncate to ensure it fits research data limits
+                            $researchData[] = "Cleaned overview from $topUrl:\n" . substr($scraped, 0, 2000);
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning("Ultimate research fallback failed: " . $e->getMessage());
+            }
+        }
 
         return !empty($researchData) 
             ? "Research findings:\n" . implode("\n\n", $researchData)

@@ -124,7 +124,15 @@ class ThumbnailService
         
         // Final fallback to SVG
         Log::warning("All AI generation attempts failed, using SVG fallback");
-        return $this->generateFallbackThumbnail($slug, $category, $blogId);
+        $svgPath = $this->generateFallbackThumbnail($slug, $category, $blogId);
+        
+        if ($svgPath) {
+            return $svgPath;
+        }
+
+        // Ultimate fallback to static default image
+        Log::error("Ultimate fallback: Using default static thumbnail for $slug");
+        return 'images/default-thumbnail.webp';
     }
     /**
      * Generate thumbnail using Hugging Face FLUX.1-schnell as fallback

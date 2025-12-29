@@ -19,21 +19,23 @@ class BlogGenerationReport extends Mailable
     public $isDuplicate;
     public $generatedAt;
     public $status;
+    public $fallbackMode;
 
     /**
      * Create a new message instance.
      */
-    public function __construct(?Blog $blog, ?\Exception $error, array $logs = [], bool $isDuplicate = false)
+    public function __construct(?Blog $blog, ?\Exception $error, array $logs = [], bool $isDuplicate = false, ?string $fallbackMode = null)
     {
         $this->blog = $blog;
         $this->error = $error;
         $this->logs = $logs;
         $this->isDuplicate = $isDuplicate;
         $this->generatedAt = now()->format('Y-m-d H:i:s');
+        $this->fallbackMode = $fallbackMode;
         
         // Determine status
         if ($blog) {
-            $this->status = 'Success';
+            $this->status = $fallbackMode ? "Success ($fallbackMode)" : 'Success';
         } elseif ($isDuplicate) {
             $this->status = 'All Topics Duplicate';
         } else {

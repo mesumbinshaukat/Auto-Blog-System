@@ -130,8 +130,8 @@ class AIService
         }
 
         if (!$result) {
-            Log::error("All AI models failed. Using mock content.");
-            return $this->generateMockContent($topic);
+            Log::error("All AI models failed. Using scraped fallback.");
+            return $this->generateScrapedFallback($topic, $researchData);
         }
 
         // Enforce minimum word count
@@ -592,7 +592,117 @@ Begin writing the blog post now:";
         }
         
         Log::warning("All HuggingFace API keys exhausted for model: $model");
-        return null;
+        return $content;
+    }
+
+    /**
+     * Ultimate fallback: Generate basic content formatted from scraped research data
+     */
+    public function generateScrapedFallback(string $topic, string $researchData): string
+    {
+        Log::info("Generating ultimate fallback content from scraped research for: $topic");
+        
+        $title = $topic;
+        $content = "";
+        
+        if (empty($researchData) || str_contains($researchData, "No external research available")) {
+            return "<h1>$topic</h1><p>Welcome to our overview of $topic. While we are currently updating our detailed analysis, the core focus remains on providing valuable insights into this subject. Stay tuned for more updates as this topic evolves.</p>";
+        }
+
+        try {
+            // Clean the research data - remove the headers and source tags
+            $cleanedData = preg_replace('/Source:.*?\n/s', '', $researchData);
+            $cleanedData = preg_replace('/From:.*?\n/s', '', $cleanedData);
+            $cleanedData = str_replace("Research findings from Scraping Hub Search:", "", $cleanedData);
+            $cleanedData = str_replace("Research findings from Mediastack:", "", $cleanedData);
+            $cleanedData = str_replace("Research findings:", "", $cleanedData);
+            
+            // Try to extract a better title if one exists in the research data
+            if (preg_match('/\((.*?)\)/', $researchData, $matches)) {
+                 $candidateTitle = trim($matches[1]);
+                 if (strlen($candidateTitle) > 10 && strlen($candidateTitle) < 100) {
+                     $title = $candidateTitle;
+                 }
+            }
+
+            // Simple HTML extraction (mocking DOM-like behavior for plain text research data)
+            // If the research data contains actual HTML snippets from scraping, we should handle them
+            if (str_contains($cleanedData, '<p>') || str_contains($cleanedData, '<div>')) {
+                $dom = new \DOMDocument();
+                @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $cleanedData, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+                
+                // Remove noise
+                foreach (['script', 'style', 'iframe', 'ins', 'nav', 'footer', 'header', 'aside'] as $tag) {
+                    $nodes = $dom->getElementsByTagName($tag);
+                    while ($nodes->length > 0) {
+                        $nodes->item(0)->parentNode->removeChild($nodes->item(0));
+                    }
+                }
+                
+                $paras = $dom->getElementsByTagName('p');
+                $validParas = [];
+                foreach ($paras as $p) {
+                    $text = trim($p->textContent);
+                    if (strlen($text) > 40) {
+                        $validParas[] = $text;
+                    }
+                }
+                
+                if (count($validParas) > 0) {
+                    foreach (array_slice($validParas, 0, 8) as $paraText) {
+                        $content .= "<p>" . htmlspecialchars($paraText) . "</p>\n";
+                    }
+                }
+            }
+
+            // Fallback for plain text or if DOM extraction yield nothing
+            if (empty($content)) {
+                $lines = explode("\n", $cleanedData);
+                $validLines = array_filter($lines, function($line) {
+                    $line = trim($line);
+                    return strlen($line) > 50 && !str_starts_with($line, '---') && !str_starts_with($line, '===');
+                });
+                
+                foreach (array_slice($validLines, 0, 10) as $line) {
+                    $content .= "<p>" . htmlspecialchars(trim($line)) . "</p>\n";
+                }
+            }
+
+            // If still empty, use basic truncation
+            if (empty($content)) {
+                $text = substr(trim($cleanedData), 0, 1500);
+                $content = "<p>" . nl2br(htmlspecialchars($text)) . "</p>";
+            }
+
+            // Add a friendly introduction
+            $intro = "<p>In this article, we provide a curated overview of <strong>$topic</strong> based on the latest available reports and research findings. $topic is a subject of significant interest, and our goal is to present the most relevant information concisely.</p>";
+            
+            $finalHtml = "<h1>$title</h1>\n" . $intro . "\n" . $content;
+            
+            Log::info("Scraped fallback generated successfully (" . strlen($finalHtml) . " chars)");
+            
+            // Notify admin about AI exhaustion
+            try {
+                $email = env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com');
+                \Illuminate\Support\Facades\Mail::raw(
+                    "CRITICAL: All AI providers (Gemini, HF, OpenRouter) exhausted for topic: \"$topic\".\n\n" .
+                    "The system has fallen back to cleaned scraped content to ensure the publishing flow is not disrupted.\n" .
+                    "Please check API quotas and keys.",
+                    function ($message) use ($topic, $email) {
+                        $message->to($email)
+                            ->subject("AI Exhausted - Scraped Fallback Used: $topic");
+                    }
+                );
+            } catch (\Exception $e) {
+                Log::error("Failed to send AI exhaustion alert: " . $e->getMessage());
+            }
+
+            return $finalHtml;
+
+        } catch (\Exception $e) {
+            Log::error("Scraped fallback generation failed: " . $e->getMessage());
+            return "<h1>$topic</h1><p>Overview of $topic: Providing key insights and essential information regarding this trending subject. $topic continues to shape discussions and we aim to provide the most accurate perspective based on current data.</p>";
+        }
     }
 
     protected function cleanContent(string $content): string

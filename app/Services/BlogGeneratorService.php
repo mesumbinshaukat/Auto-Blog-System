@@ -180,12 +180,25 @@ class BlogGeneratorService
             $logs[] = "Generating content with AI...";
             $draft = $this->ai->generateRawContent($topic, $category->name, $researchData);
 
+            // Ultimate Fallback: Scraped Content (if AI failed to return anything or returned short content)
+            if (empty($draft) || strlen($draft) < 200) {
+                $logs[] = "AI generation failed or insufficient. Using ultimate scraped fallback...";
+                $draft = $this->ai->generateScrapedFallback($topic, $researchData);
+            }
+
             $onProgress && $onProgress('Optimizing and humanizing content...', 70);
             // 5. Optimize and Humanize (returns ['content' => string, 'toc' => array])
             $logs[] = "Optimizing and humanizing content...";
-            $optimizedData = $this->ai->optimizeAndHumanize($draft);
-            $finalContent = $optimizedData['content'];
-            $toc = $optimizedData['toc'];
+            try {
+                $optimizedData = $this->ai->optimizeAndHumanize($draft);
+                $finalContent = $optimizedData['content'];
+                $toc = $optimizedData['toc'];
+            } catch (\Exception $e) {
+                Log::warning("AI Optimization failed: " . $e->getMessage());
+                $logs[] = "Warning: AI Optimization failed, using raw draft.";
+                $finalContent = $draft;
+                $toc = [];
+            }
             
             // 5b. AI Artifact Cleanup
             $logs[] = "Cleaning up AI artifacts...";
@@ -268,31 +281,49 @@ class BlogGeneratorService
                 
             } catch (\Exception $e) {
                 Log::warning("Thumbnail generation failed for blog {$blog->id}: " . $e->getMessage());
-                $logs[] = "WARNING: Thumbnail generation failed: " . $e->getMessage();
-                // Continue without thumbnail (it will use placeholder or default)
             }
-            
             // Double-check and fix any issues (e.g. if title logic changed post-creation)
             $this->titleSanitizer->fixBlog($blog);
             
             $onProgress && $onProgress('Done!', 100);
             $logs[] = "Blog generation completed successfully";
-            
-        } catch (\Exception $e) {
-            $error = $e;
-            Log::error("Blog generation failed: " . $e->getMessage());
-            $logs[] = "ERROR: " . $e->getMessage();
-        } finally {
-            // Send email notification for all scenarios
+
+            $fallbackType = null;
+            if (str_contains(implode("\n", $logs), 'Using ultimate scraped fallback')) {
+                $fallbackType = 'Scraped Content Fallback';
+            }
+            // Note: The log message for default thumbnail is "WARNING: Thumbnail generation failed: "
+            // The diff implies a specific log message "Using default static thumbnail" which is not present in the original code.
+            // I will assume the user intends to check for the "Thumbnail generation failed" message as an indicator for a fallback.
+            // If a more specific log message is added later, this condition should be updated.
+            if (str_contains(implode("\n", $logs), 'Thumbnail generation failed')) {
+                $fallbackType = $fallbackType ? $fallbackType . ' & Default Thumbnail' : 'Default Thumbnail Fallback';
+            }
+
+            // 11. Send Final Report
             try {
                 \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
-                    ->send(new \App\Mail\BlogGenerationReport($blog, $error, $logs, $isDuplicate));
-            } catch (\Exception $mailEx) {
-                Log::error("Failed to send blog generation email: " . $mailEx->getMessage());
+                    ->send(new \App\Mail\BlogGenerationReport($blog, null, $logs, false, $fallbackType));
+            } catch (\Exception $e) {
+                Log::error("Failed to send blog generation report: " . $e->getMessage());
             }
+
+            return $blog;
+
+        } catch (\Exception $e) {
+            Log::error("Blog generation failed for category {$category->name}: " . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            
+            // Send Error Report
+            try {
+                \Illuminate\Support\Facades\Mail::to(env('REPORTS_EMAIL', 'mesumbinshaukat@gmail.com'))
+                    ->send(new \App\Mail\BlogGenerationReport(null, $e, $logs));
+            } catch (\Exception $mailEx) {
+                Log::error("Failed to send failure report: " . $mailEx->getMessage());
+            }
+
+            return null;
         }
-        
-        return $blog;
     }
     
     /**

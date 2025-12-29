@@ -97,11 +97,13 @@ class CheckScheduler
                 // Note: daily_scheduler_lock_time is not yet implemented, let's add it in the success block
                 // Actually, let's just use a simple timestamp cache.
                 $lockTime = Cache::get('daily_scheduler_lock_start');
-                if ($lockTime && (time() - $lockTime) > 600) {
-                    Log::warning("Force releasing stuck daily_scheduler_lock");
+                if ($lockTime && (time() - $lockTime) > 3600) { // Force release after 1 hour as requested
+                    Log::warning("Force releasing stuck daily_scheduler_lock (held for >3600s)");
                     Cache::forget('daily_scheduler_lock');
-                    Mail::to(env('REPORTS_EMAIL', 'admin@example.com'))
-                        ->send(new SystemErrorReport('Stuck Lock Recovered', "The daily scheduler lock was stuck for >600s and has been force-released."));
+                    try {
+                        Mail::to(env('REPORTS_EMAIL', 'admin@example.com'))
+                            ->send(new SystemErrorReport('Stuck Lock Recovered', "The daily scheduler lock was stuck for >3600s and has been force-released."));
+                    } catch (\Exception $e) {}
                 }
             }
         }
