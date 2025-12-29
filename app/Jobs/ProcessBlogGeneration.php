@@ -16,6 +16,7 @@ class ProcessBlogGeneration implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $tries = 1;
+    protected $categoryId;
 
     public function __construct(int $categoryId)
     {
