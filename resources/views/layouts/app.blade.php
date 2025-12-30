@@ -4,6 +4,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+
+    <!-- Google tag (gtag.js) -->
+    @if(env('GOOGLE_ANALYTICS_ID'))
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ env('GOOGLE_ANALYTICS_ID') }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', '{{ env('GOOGLE_ANALYTICS_ID') }}');
+    </script>
+    @endif
+
     <link rel="icon" type="image/x-icon" href="../images/Blogs Logo (150 x 150 px).png">
 
     <title>{{ $meta_title ?? config('app.name', 'Auto Blog System') }}</title>
