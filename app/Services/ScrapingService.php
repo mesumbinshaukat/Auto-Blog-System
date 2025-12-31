@@ -586,7 +586,7 @@ class ScrapingService
         }
     }
 
-    protected function fetchFallbackTopics(string $category): array
+    public function fetchFallbackTopics(string $category): array
     {
         $fallbacks = [
             'technology' => [
