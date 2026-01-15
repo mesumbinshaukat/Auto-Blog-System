@@ -516,6 +516,7 @@ Begin writing the blog post now:";
     protected function callHuggingFaceChatCompletion(string $model, string $systemPrompt, string $userPrompt, int $retries = 3): ?string
     {
         $url = "https://router.huggingface.co/v1/chat/completions";
+        $content = null; // Initialize to prevent undefined variable error
         
         if (empty($this->hfKeys)) {
             Log::warning("No HuggingFace API keys configured");
@@ -592,7 +593,7 @@ Begin writing the blog post now:";
         }
         
         Log::warning("All HuggingFace API keys exhausted for model: $model");
-        return $content;
+        return null; // Return null when all keys exhausted
     }
 
     /**
