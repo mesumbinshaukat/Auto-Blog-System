@@ -40,6 +40,17 @@
 
 
 
+    <!-- Category Navigation Section -->
+    <div class="categories flex flex-wrap gap-3 mb-12">
+        @foreach(\App\Models\Category::all() as $category)
+            <a href="{{ route('category', $category->slug) }}" 
+               class="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-blue-300 transition shadow-sm"
+               rel="nofollow">
+                {{ $category->name }}
+            </a>
+        @endforeach
+    </div>
+
     <!-- Category Sections -->
     <div class="space-y-12 mb-16">
         @foreach($categories as $cat)
@@ -57,7 +68,9 @@
                                 <div class="bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition">
                                     <div class="h-48 overflow-hidden bg-gray-100 relative">
                                         <img src="{{ ($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path)) ? asset('storage/' . $blog->thumbnail_path) : "https://placehold.co/600x400/e2e8f0/1e293b?text={$cat->name}" }}" 
-                                             class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy">
+                                             class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" 
+                                             alt="{{ $blog->title }}"
+                                             loading="lazy">
                                     </div>
                                     <div class="p-4">
                                         <h3 class="font-bold text-gray-900 mb-1 leading-tight">

@@ -57,7 +57,36 @@ class ScrapingService
             'https://www.smashingmagazine.com/feed/',
             'https://www.sitepoint.com/feed/',
             'https://css-tricks.com/feed/',
-            'https://www.digitalocean.com/community/tutorials.atom'
+            'https://www.digitalocean.com/community/tutorials.atom',
+            'https://www.thecrazyprogrammer.com/feed',
+            'https://stackabuse.com/rss/',
+            'https://blog.jooq.org/feed/',
+            'http://feeds.hanselman.com/ScottHanselman',
+            'https://tympanus.net/codrops/feed/',
+            'https://blog.codepen.io/feed/',
+            'https://hackr.io/programming/rss.xml',
+            'https://codesignal.com/feed/',
+            'https://stackoverflow.blog/feed/',
+            'https://www.johndcook.com/blog/feed/',
+            'https://feeds.feedburner.com/helloacm',
+            'https://fueled.com/feed/',
+            'https://eli.thegreenplace.net/feeds/all.atom.xml',
+            'https://catonmat.net/feed',
+            'https://www.tutorialsmate.com/feeds/posts/default?alt=rss',
+            'https://codingnconcepts.com/index.xml',
+            'https://fusion-reactor.com/feed/',
+            'https://feeds.feedburner.com/Techgoeasy',
+            'https://www.codingvila.com/feeds/posts/default?alt=rss',
+            'https://www.vitoshacademy.com/feed/',
+            'https://feeds.feedburner.com/abundantcode',
+            'https://programesecure.com/feed/',
+            'http://yetanothermathprogrammingconsultant.blogspot.com/feeds/posts/default',
+            'http://anothercasualcoder.blogspot.com/feeds/posts/default',
+            'https://www.blueboxes.co.uk/rss.xml',
+            'https://www.amitmerchant.com/feed.xml',
+            'https://cmsminds.com/feed/',
+            'http://www.philipzucker.com/feed.xml',
+            'https://blog.newtum.com/feed/'
         ]
     ];
 
@@ -259,7 +288,7 @@ class ScrapingService
         
         // Add random variation to avoid stale topics
         shuffle($sources);
-        $sources = array_slice($sources, 0, 2); // Check up to 2 sources per run
+        $sources = array_slice($sources, 0, 3); // Check up to 3 sources per run
 
         $topics = [];
 
@@ -271,10 +300,14 @@ class ScrapingService
                 
                 // Try Scraping Hub RSS first
                 if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
-                    $results = $this->scrapingHub->rss($url);
-                    if ($results && count($results) > 0) {
-                        Log::info("Successfully fetched RSS via Scraping Hub: $url");
-                        $items = $results;
+                    try {
+                        $results = $this->scrapingHub->rss($url);
+                        if ($results && count($results) > 0) {
+                            Log::info("Successfully fetched RSS via Scraping Hub: $url");
+                            $items = $results;
+                        }
+                    } catch (\Exception $shEx) {
+                        Log::warning("ScrapingHub RSS fetch failed for $url: " . $shEx->getMessage());
                     }
                 }
 
@@ -282,7 +315,6 @@ class ScrapingService
                     $itemCount = 0;
                     foreach ($items as $item) {
                         $title = $item['title'] ?? '';
-                        // Filter: Only recent (last 7 days) if pubDate exists
                         $pubDateStr = $item['pubDate'] ?? '';
                         $isRecent = true;
                         if (!empty($pubDateStr)) {
@@ -297,73 +329,92 @@ class ScrapingService
                             $itemCount++;
                         }
 
-                        if (count($topics) >= 5) break;
+                        if (count($topics) >= 8) break;
                     }
                     Log::info("RSS $url (via ScrapingHub) returned $itemCount recent topics");
                 } else {
                     // Fallback to manual Guzzle
-                    $response = $this->client->get($url);
-                    
-                    if ($response->getStatusCode() === 404) {
-                        Log::warning("RSS $url returned 404, skipping");
-                        continue;
-                    }
-                    
-                    $xmlContent = $response->getBody()->getContents();
-                    
-                    if (empty(trim($xmlContent))) {
-                        Log::warning("RSS $url returned empty content, skipping");
-                        continue;
-                    }
-                    
-                    $rss = simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NOCDATA);
-                    
-                    if ($rss === false) {
-                        Log::warning("RSS $url failed to parse XML, skipping");
-                        continue;
-                    }
-
-                    $rssItems = $rss->channel->item ?? $rss->entry ?? [];
-                    
-                    if (empty($rssItems)) {
-                        Log::warning("RSS $url returned empty feed, skipping");
-                        continue;
-                    }
-                    
-                    $itemCount = 0;
-                    foreach ($rssItems as $item) {
-                        $title = (string)$item->title;
-                        $pubDate = strtotime((string)($item->pubDate ?? $item->updated ?? 'now'));
+                    try {
+                        $response = $this->client->get($url, ['timeout' => 10]);
                         
-                        if (time() - $pubDate < 604800) { 
-                            $topics[] = trim($title);
-                            $itemCount++;
+                        if ($response->getStatusCode() !== 200) {
+                            Log::warning("RSS $url returned status " . $response->getStatusCode() . ", skipping");
+                            continue;
+                        }
+                        
+                        $xmlContent = $response->getBody()->getContents();
+                        if (empty(trim($xmlContent))) {
+                            Log::warning("RSS $url returned empty content, skipping");
+                            continue;
+                        }
+                        
+                        // Use internal errors for cleaner handling
+                        libxml_use_internal_errors(true);
+                        $rss = simplexml_load_string($xmlContent, 'SimpleXMLElement', LIBXML_NOCDATA);
+                        
+                        if ($rss === false) {
+                            $errors = libxml_get_errors();
+                            Log::warning("RSS $url failed to parse XML: " . (isset($errors[0]) ? $errors[0]->message : 'Unknown error'));
+                            libxml_clear_errors();
+                            continue;
                         }
 
-                        if (count($topics) >= 5) break;
+                        $rssItems = $rss->channel->item ?? $rss->entry ?? [];
+                        
+                        $itemCount = 0;
+                        foreach ($rssItems as $item) {
+                            $title = (string)($item->title ?? '');
+                            if (empty($title)) continue;
+
+                            $pubDateStr = (string)($item->pubDate ?? $item->updated ?? $item->published ?? 'now');
+                            $pubDate = strtotime($pubDateStr);
+                            
+                            if (!$pubDate || (time() - $pubDate < 604800)) { 
+                                $topics[] = trim($title);
+                                $itemCount++;
+                            }
+
+                            if (count($topics) >= 8) break;
+                        }
+                        Log::info("RSS $url (via Guzzle) returned $itemCount recent topics");
+                    } catch (\GuzzleHttp\Exception\GuzzleException $gEx) {
+                        Log::warning("Guzzle RSS fetch failed for $url: " . $gEx->getMessage());
                     }
-                    Log::info("RSS $url (via Guzzle) returned $itemCount recent topics");
                 }
 
-            } catch (\GuzzleHttp\Exception\ClientException $e) {
-                if ($e->getResponse()->getStatusCode() === 404) {
-                    Log::warning("RSS $url returned 404, skipping");
-                } else {
-                    Log::warning("RSS Fetch failed for $url: " . $e->getMessage());
-                }
             } catch (\Exception $e) {
-                Log::warning("RSS Fetch failed for $url: " . $e->getMessage());
+                Log::warning("RSS Processing failed for $url: " . $e->getMessage());
             }
 
-            if (count($topics) >= 5) break; // Stop if we have enough
+            if (count($topics) >= 10) break; 
         }
 
         // De-duplicate
-        $topics = array_unique($topics);
+        $topics = array_unique(array_filter($topics));
 
-        // Fallback to static topics if empty
+        // Fallback: If RSS empty and category is tutorial, search for topics
+        if (empty($topics) && $category === 'tutorial' && $this->scrapingHub && $this->scrapingHub->isAvailable()) {
+            try {
+                Log::info("Tutorial RSS empty, attempting search-based topic discovery");
+                $searchQuery = "latest technical tutorials programming how-to 2026";
+                $searchResults = $this->scrapingHub->search($searchQuery, 10);
+                
+                if ($searchResults && count($searchResults) > 0) {
+                    foreach ($searchResults as $res) {
+                        if (!empty($res['title'])) {
+                            $topics[] = $res['title'];
+                        }
+                    }
+                    Log::info("Found " . count($topics) . " tutorial topics via search fallback");
+                }
+            } catch (\Exception $searchEx) {
+                Log::error("Tutorial search fallback failed: " . $searchEx->getMessage());
+            }
+        }
+
+        // Fallback to static topics if still empty
         if (empty($topics)) {
-            Log::warning("All RSS sources failed or returned no topics for $category, using fallback topics");
+            Log::warning("All search and RSS sources failed for $category, using fallback topics");
             return $this->fetchFallbackTopics($category);
         }
         
@@ -374,7 +425,7 @@ class ScrapingService
             $topics = array_merge($topics, array_slice($fallbacks, 0, 5 - count($topics)));
         }
 
-        return $topics;
+        return array_values(array_unique($topics));
     }
 
     public function scrapeContent(string $url): string
@@ -457,6 +508,16 @@ class ScrapingService
                 Log::info("Attempting to research topic via Scraping Hub search: $topic");
                 $results = $this->scrapingHub->search($topic, 5);
                 
+                // Tutorial category specialized research fallback
+                $isTutorial = preg_match('/^(How to|Tutorial|Guide|Step-by-step|Installing|Setting up)/i', $topic) || str_contains(strtolower($topic), 'tutorial');
+                if ($isTutorial && (empty($results) || count($results) < 3)) {
+                    Log::info("Tutorial topic detected with sparse results, trying specialized query: latest $topic tutorial 2026");
+                    $specialResults = $this->scrapingHub->search("latest $topic tutorial 2026", 5);
+                    if ($specialResults) {
+                        $results = array_merge($results ?? [], $specialResults);
+                    }
+                }
+
                 if ($results && count($results) > 0) {
                     $scrapingHubData = [];
                     foreach ($results as $result) {
@@ -466,7 +527,7 @@ class ScrapingService
                         
                         $scrapingHubData[] = "Source: Scraping Hub ($title)\nFrom: $url\n$snippet";
                         
-                        if (count($scrapingHubData) >= 3) break;
+                        if (count($scrapingHubData) >= 5) break;
                     }
                     
                     if (!empty($scrapingHubData)) {

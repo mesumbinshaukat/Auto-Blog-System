@@ -729,6 +729,7 @@ SVG;
             'Games' => ['#EF4444', '#B91C1C'],
             'Politics' => ['#F59E0B', '#D97706'],
             'Sports' => ['#EC4899', '#BE185D'],
+            'Tutorial' => ['#10B981', '#047857'],
         ];
 
         $colors = $categoryColors[$category] ?? ['#6B7280', '#374151'];

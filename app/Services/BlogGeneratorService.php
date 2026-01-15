@@ -125,7 +125,20 @@ class BlogGeneratorService
                     $isDuplicate = $this->checkTopicDuplicate($candidateTopic, $logs);
                     
                     if ($isDuplicate) {
-                        $logs[] = "Attempt " . ($attempt + 1) . "/$maxAttempts: Topic '$candidateTopic' is a duplicate. Retrying...";
+                        $logs[] = "Attempt " . ($attempt + 1) . "/$maxAttempts: Topic '$candidateTopic' is a duplicate.";
+                        
+                        // Requirement: if duplicate, append current year and retry
+                        $year = date('Y');
+                        $retryTopic = $candidateTopic . " - $year";
+                        $logs[] = "Retrying with year-appended title: $retryTopic";
+                        
+                        // Check if the modified title is also a duplicate
+                        if (!$this->checkTopicDuplicate($retryTopic, $logs)) {
+                            $selectedTopic = $retryTopic;
+                            $logs[] = "Selected fresh year-appended topic: $selectedTopic";
+                            break;
+                        }
+
                         // Remove from topics to avoid picking again
                         $topics = array_diff($topics, [$candidateTopic]);
                         $attempt++;
@@ -179,7 +192,6 @@ class BlogGeneratorService
             // 4. Generate Draft with new AI service
             $logs[] = "Generating content with AI...";
             
-            // Tutorial-specific prompt enhancement
             if (strtolower($category->name) === 'tutorial') {
                 $tutorialInstructions = "\n\nIMPORTANT TUTORIAL FORMAT REQUIREMENTS:\n";
                 $tutorialInstructions .= "1. Structure as a step-by-step tutorial with numbered lists\n";
@@ -188,8 +200,9 @@ class BlogGeneratorService
                 $tutorialInstructions .= "4. Include an FAQ section at the end for AISEO optimization\n";
                 $tutorialInstructions .= "5. Use <h2> tags for major steps\n";
                 $tutorialInstructions .= "6. Make it beginner-friendly with clear explanations\n";
+                $tutorialInstructions .= "7. Include schema.org/HowTo JSON-LD markup blocks if relevant to the technical steps\n";
                 $researchData .= $tutorialInstructions;
-                $logs[] = "Applied tutorial-specific formatting instructions";
+                $logs[] = "Applied tutorial-specific formatting and SEO instructions";
             }
             
             $draft = $this->ai->generateRawContent($topic, $category->name, $researchData);
@@ -416,6 +429,7 @@ class BlogGeneratorService
             'urls' => $urls
         ];
     }
+
 
     public function processSeoLinks(string $content, Category $category, array $options = []): array
     {

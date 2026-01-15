@@ -60,8 +60,11 @@
                     <!-- Desktop Navigation & Auth -->
                     <div class="hidden md:flex md:items-center md:space-x-8">
                         <nav class="flex space-x-6">
-                            @foreach(\App\Models\Category::all() as $cat)
-                                <a href="{{ route('category', $cat->slug) }}" class="text-gray-600 hover:text-blue-600 uppercase text-sm font-bold tracking-wide transition">{{ $cat->name }}</a>
+                            @php
+                                $categories = cache()->remember('categories_nav', 3600, fn() => \App\Models\Category::all());
+                            @endphp
+                            @foreach($categories as $cat)
+                                <a href="{{ route('category', $cat->slug) }}" class="text-gray-600 hover:text-blue-600 uppercase text-sm font-bold tracking-wide transition" rel="follow">{{ $cat->name }}</a>
                             @endforeach
                         </nav>
 
@@ -138,8 +141,8 @@
 
                         <nav class="flex flex-col space-y-4">
                             <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Categories</p>
-                            @foreach(\App\Models\Category::all() as $cat)
-                                <a href="{{ route('category', $cat->slug) }}" class="text-base font-medium text-gray-900 hover:text-blue-600 block">
+                            @foreach($categories as $cat)
+                                <a href="{{ route('category', $cat->slug) }}" class="text-base font-medium text-gray-900 hover:text-blue-600 block" rel="follow">
                                     {{ $cat->name }}
                                 </a>
                             @endforeach
