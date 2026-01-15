@@ -178,6 +178,20 @@ class BlogGeneratorService
             $onProgress && $onProgress('Generating draft with AI...', 50);
             // 4. Generate Draft with new AI service
             $logs[] = "Generating content with AI...";
+            
+            // Tutorial-specific prompt enhancement
+            if (strtolower($category->name) === 'tutorial') {
+                $tutorialInstructions = "\n\nIMPORTANT TUTORIAL FORMAT REQUIREMENTS:\n";
+                $tutorialInstructions .= "1. Structure as a step-by-step tutorial with numbered lists\n";
+                $tutorialInstructions .= "2. Include code snippets in Markdown format (```language code ```)\n";
+                $tutorialInstructions .= "3. Add practical examples and troubleshooting tips\n";
+                $tutorialInstructions .= "4. Include an FAQ section at the end for AISEO optimization\n";
+                $tutorialInstructions .= "5. Use <h2> tags for major steps\n";
+                $tutorialInstructions .= "6. Make it beginner-friendly with clear explanations\n";
+                $researchData .= $tutorialInstructions;
+                $logs[] = "Applied tutorial-specific formatting instructions";
+            }
+            
             $draft = $this->ai->generateRawContent($topic, $category->name, $researchData);
 
             // Ultimate Fallback: Scraped Content (if AI failed to return anything or returned short content)

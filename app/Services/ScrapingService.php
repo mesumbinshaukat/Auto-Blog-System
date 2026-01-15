@@ -50,6 +50,14 @@ class ScrapingService
         'health' => [
             'https://feeds.bbci.co.uk/news/health/rss.xml',
             'https://www.sciencedaily.com/rss/top/health.xml' 
+        ],
+        'tutorial' => [
+            'https://www.freecodecamp.org/news/rss/',
+            'https://developer.mozilla.org/en-US/blog/rss.xml',
+            'https://www.smashingmagazine.com/feed/',
+            'https://www.sitepoint.com/feed/',
+            'https://css-tricks.com/feed/',
+            'https://www.digitalocean.com/community/tutorials.atom'
         ]
     ];
 
@@ -808,6 +816,37 @@ class ScrapingService
                 'Sports Medicine Advances',
                 'Competitive Sports Psychology',
                 'Sports Technology Innovation'
+            ],
+            'tutorial' => [
+                'How to Start Programming in 2026',
+                'How to Build a Progressive Web App (PWA)',
+                'How to Setup WordPress on Windows 11',
+                'How to Delete Files in Ubuntu Using Terminal',
+                'How to Use Git for Version Control',
+                'How to Deploy a Laravel App to Vercel',
+                'How to Optimize Images for Web Performance',
+                'How to Secure Your API with JWT',
+                'How to Learn Python for Data Science',
+                'How to Create a RESTful API in Node.js',
+                'How to Install Docker on Mac',
+                'How to Debug JavaScript Errors',
+                'How to Setup a VPN on Android',
+                'How to Use VS Code Extensions Effectively',
+                'How to Build a Simple Machine Learning Model',
+                'How to Migrate from HTTP to HTTPS',
+                'How to Use Tailwind CSS in Projects',
+                'How to Handle Errors in PHP',
+                'How to Optimize SQL Queries',
+                'How to Create Custom WordPress Plugins',
+                'How to Use React Hooks',
+                'How to Setup CI/CD with GitHub Actions',
+                'How to Secure Linux Servers',
+                'How to Analyze Website Traffic with Google Analytics',
+                'How to Build a Chatbot with AI',
+                'How to Setup Laravel Development Environment',
+                'How to Use Docker Compose for Multi-Container Apps',
+                'How to Implement Authentication in Next.js',
+                'How to Write Unit Tests in Laravel'
             ]
         ];
         

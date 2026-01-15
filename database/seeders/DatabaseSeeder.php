@@ -24,7 +24,7 @@ class DatabaseSeeder extends Seeder
         );
 
         // Default Categories
-        $categories = ['Technology', 'Business', 'AI', 'Games', 'Politics', 'Sports'];
+        $categories = ['Technology', 'Business', 'AI', 'Games', 'Politics', 'Sports', 'Tutorial'];
         
         foreach ($categories as $cat) {
             Category::firstOrCreate([
