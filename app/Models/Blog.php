@@ -85,6 +85,7 @@ class Blog extends Model
 
     public function getTitleAttribute($value)
     {
+        // Handle full URLs
         if (filter_var($value, FILTER_VALIDATE_URL)) {
             $path = parse_url($value, PHP_URL_PATH) ?? $value;
             $title = basename($path);
@@ -95,6 +96,36 @@ class Blog extends Model
             $title = preg_replace('/\.(html|php|asp|aspx)$/i', '', $title);
             return ucwords(trim($title));
         }
+        
+        // Handle malformed URLs (missing protocol separators like "httpswww...")
+        if (preg_match('/^https?[a-z0-9]+/i', $value)) {
+            // Common section keywords to look for
+            $sections = ['news', 'tech', 'technology', 'business', 'sports', 'entertainment', 
+                        'politics', 'science', 'health', 'world', 'opinion', 'lifestyle',
+                        'travel', 'food', 'culture', 'arts', 'education', 'finance'];
+            
+            $foundSection = null;
+            foreach ($sections as $section) {
+                // Look for the section keyword in the URL
+                if (preg_match('/(?:com|net|org|co)' . $section . '/i', $value)) {
+                    $foundSection = $section;
+                    break;
+                }
+            }
+            
+            if ($foundSection) {
+                return ucwords($foundSection);
+            } else {
+                // Fallback: try to extract domain name
+                if (preg_match('/(?:https?)?(?:www)?([a-z0-9\-]+)(?:com|net|org|co)/i', $value, $domainMatches)) {
+                    return ucwords($domainMatches[1]);
+                } else {
+                    // Last resort: use a generic title
+                    return 'Article';
+                }
+            }
+        }
+        
         return $value;
     }
 
