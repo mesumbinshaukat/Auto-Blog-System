@@ -23,14 +23,8 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        // Default Categories
-        $categories = ['Technology', 'Business', 'AI', 'Games', 'Politics', 'Sports', 'Tutorial'];
-        
-        foreach ($categories as $cat) {
-            Category::firstOrCreate([
-                'name' => $cat,
-                'slug' => \Illuminate\Support\Str::slug($cat)
-            ]);
-        }
+        $this->call([
+            CategorySeeder::class,
+        ]);
     }
 }

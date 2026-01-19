@@ -233,7 +233,7 @@ class ThumbnailService
     {
         $prompt = "Professional blog thumbnail image, high quality, 4K resolution, 16:9 aspect ratio, ";
         $prompt .= "centered composition, modern design, ";
-        $prompt .= "Topic: $title, ";
+        $prompt .= "Topic: " . $this->cleanTitle($title) . ", ";
         $prompt .= "Category: $category, ";
         $prompt .= "Visual elements: $elementsText, ";
         $prompt .= "Style: clean, vibrant colors, professional lighting, ";
@@ -374,7 +374,7 @@ class ThumbnailService
         
         $prompt = "Analyze this blog post for a unique, topic-specific thumbnail design.
 
-Title: $title
+Title: " . $this->cleanTitle($title) . "
 Category: $category
 Content Excerpt (first 2000 chars): $excerpt
 Detected Topic Elements: $elementsText
@@ -609,6 +609,26 @@ SVG;
         }
         
         return str_replace('</svg>', $shapes . '</svg>', $svg);
+    }
+
+    /**
+     * Clean and sanitize titles, especially for raw URLs
+     */
+    protected function cleanTitle(string $title): string
+    {
+        if (filter_var($title, FILTER_VALIDATE_URL)) {
+            $path = parse_url($title, PHP_URL_PATH) ?? $title;
+            $clean = basename($path);
+            if (empty($clean) || $clean === parse_url($title, PHP_URL_HOST)) {
+                $clean = str_replace('www.', '', parse_url($title, PHP_URL_HOST));
+            }
+            $clean = str_replace(['-', '_'], ' ', $clean);
+            $clean = preg_replace('/\.(html|php|asp|aspx)$/i', '', $clean);
+            return ucwords(trim($clean));
+        }
+        
+        // Truncate if too long for thumbnail display
+        return trim($title);
     }
 
     /**

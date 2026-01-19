@@ -44,6 +44,7 @@ class BlogGeneratorService
             $customContext = "";
             $scrapeUrl = null;
             $scrapedContent = null;
+            $scrapedMeta = null;
             if ($customPrompt) {
                 // Capture every URL candidate (handles punctuation and multiple URLs)
                 if (preg_match_all('/https?:\/\/[\w\-\.]+[\w\-\.\~:\/\?\#\[\]\@!\$&\'\(\)\*\+,;=%]+/', $customPrompt, $matches)) {
@@ -61,29 +62,39 @@ class BlogGeneratorService
                     $logs[] = "Detailed custom prompt contains valid URL: $scrapeUrl. Attempting scrape...";
                     
                     try {
-                        $scrapedContent = $this->scraper->scrapeContent($scrapeUrl);
+                        $scrapedData = $this->scraper->scrapeContent($scrapeUrl);
+                        $scrapedContent = $scrapedData['content'] ?? null;
+                        $scrapedMeta = $scrapedData['meta_description'] ?? null;
+                        
                         if ($scrapedContent) {
-                            // Truncate to 3000 chars to save tokens but keep "juicy" parts
+                            // If user just pasted a URL, use the extracted title as the topic
+                            if (trim($customPrompt) === $scrapeUrl || strlen(trim($customPrompt)) < 30) {
+                                $extractedTitle = $scrapedData['og_title'] ?: $scrapedData['title'];
+                                if ($extractedTitle && strlen($extractedTitle) > 10) {
+                                    $customPrompt = $extractedTitle;
+                                    $logs[] = "Extracted title from URL to use as topic: $customPrompt";
+                                }
+                            }
+
+                            // Truncate to 3000 chars
                             $truncatedContent = Str::limit($scrapedContent, 3000);
                             
-                            // Enhanced Context for Tool Blogs
-                            // We inject specific instructions to treat this as a Tool/Site review
                             $customContext = "\n\n[USER PROVIDED SOURCE CONTENT START]\n" . $truncatedContent . "\n[USER PROVIDED SOURCE CONTENT END]\n";
                             $customContext .= "\nIMPORTANT INSTRUCTIONS:\n";
                             $customContext .= "1. Write a comprehensive SEO blog for the tool/site at [$scrapeUrl].\n";
                             $customContext .= "2. Cover: Core Features, How It Works, Pros & Cons, and Use Cases.\n";
-                            $customContext .= "3. Include a Comparison section (e.g., vs competitors like Remove.bg, ChatGPT, etc. if relevant).\n";
-                            $customContext .= "4. MUST insert a dofollow link (rel='dofollow') to <a href='$scrapeUrl'>the official site</a> in the introduction or conclusion.\n";
+                            $customContext .= "3. Include a Comparison section.\n";
+                            $customContext .= "4. MUST insert a dofollow link (rel='dofollow') to <a href='$scrapeUrl'>the official site</a>.\n";
                             
                             $logs[] = "Successfully scraped content from user URL";
                         } else {
-                            $logs[] = "Warning: Unable to access site content for $scrapeUrl (empty response)";
-                            $customContext = "\n\n[Unable to access site content for $scrapeUrl. Proceed using general knowledge about this tool/site.]\n";
+                            $logs[] = "Warning: Unable to access site content for $scrapeUrl";
+                            $customContext = "\n\n[Unable to access site content for $scrapeUrl. Proceed using general knowledge.]\n";
                         }
                     } catch (\Exception $e) {
                         Log::warning("Failed to scrape user URL ($scrapeUrl): " . $e->getMessage());
-                        $logs[] = "Warning: Unable to access site content for $scrapeUrl (exception caught)";
-                        $customContext = "\n\n[Unable to access site content for $scrapeUrl. Proceed using general knowledge about this tool/site.]\n";
+                        $logs[] = "Warning: Unable to access site content for $scrapeUrl";
+                        $customContext = "\n\n[Unable to access site content for $scrapeUrl. Proceed using general knowledge.]\n";
                     }
                 }
             }
@@ -121,25 +132,31 @@ class BlogGeneratorService
                     $candidateTopic = $topics[array_rand($topics)];
                     $attemptedTopics[] = $candidateTopic;
                     
+                    // Validation check
+                    if (!$this->scraper->isValidTopic($candidateTopic)) {
+                        $logs[] = "Attempt " . ($attempt + 1) . ": Topic '$candidateTopic' is malformed or a URL. Skipping.";
+                        $topics = array_diff($topics, [$candidateTopic]);
+                        $attempt++;
+                        continue;
+                    }
+
                     // Enhanced duplicate check: LIKE + similarity
                     $isDuplicate = $this->checkTopicDuplicate($candidateTopic, $logs);
                     
                     if ($isDuplicate) {
                         $logs[] = "Attempt " . ($attempt + 1) . "/$maxAttempts: Topic '$candidateTopic' is a duplicate.";
                         
-                        // Requirement: if duplicate, append current year and retry
-                        $year = date('Y');
-                        $retryTopic = $candidateTopic . " - $year";
-                        $logs[] = "Retrying with year-appended title: $retryTopic";
+                        // Requirement: if duplicate, append variant and retry
+                        $variants = [date('Y'), date('Y') . " Guide", "Review " . date('Y'), "Latest " . date('Y')];
+                        $retryTopic = $candidateTopic . " - " . $variants[array_rand($variants)];
+                        $logs[] = "Retrying with variant: $retryTopic";
                         
-                        // Check if the modified title is also a duplicate
                         if (!$this->checkTopicDuplicate($retryTopic, $logs)) {
                             $selectedTopic = $retryTopic;
-                            $logs[] = "Selected fresh year-appended topic: $selectedTopic";
+                            $logs[] = "Selected fresh variant topic: $selectedTopic";
                             break;
                         }
 
-                        // Remove from topics to avoid picking again
                         $topics = array_diff($topics, [$candidateTopic]);
                         $attempt++;
                         continue; 
@@ -283,8 +300,8 @@ class BlogGeneratorService
                 'category_id' => $category->id,
                 'published_at' => now(),
                  // Enhanced SEO Meta
-                'meta_title' => Str::limit($title, 55) . ' - ' . config('app.name', 'AutoBlog'),
-                'meta_description' => Str::limit(strip_tags($finalContent), 155),
+                'meta_title' => $this->titleSanitizer->sanitizeTitle(Str::limit($title, 55)) . ' - ' . config('app.name', 'AutoBlog'),
+                'meta_description' => $scrapedMeta ?: Str::limit(strip_tags($finalContent), 155),
                 'tags_json' => [$category->name, 'Trending', $topic, date('Y')],
                 'table_of_contents_json' => $toc,
                 'thumbnail_path' => null, // Placeholder

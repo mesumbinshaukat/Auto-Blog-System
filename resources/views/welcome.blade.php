@@ -12,10 +12,11 @@
     <div x-data="{ activeSlide: 0, slides: {{ $latest->count() }} }" class="relative mb-12 rounded-xl overflow-hidden shadow-2xl h-96">
         @foreach($latest as $index => $blog)
             <div x-show="activeSlide === {{ $index }}" class="absolute inset-0 transition-opacity duration-500 ease-in-out bg-gray-900">
-                <img src="{{ ($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path)) ? asset('storage/' . $blog->thumbnail_path) : "https://placehold.co/1200x600/1d4ed8/ffffff?text={$blog->category->name}" }}" 
+                <img src="{{ $blog->thumbnail_url }}" 
                      class="w-full h-full object-cover opacity-50"
                      loading="{{ $index === 0 ? 'eager' : 'lazy' }}"
-                     decoding="{{ $index === 0 ? 'sync' : 'async' }}">
+                     decoding="{{ $index === 0 ? 'sync' : 'async' }}"
+                     alt="{{ $blog->title }}">
                 <div class="absolute bottom-0 left-0 p-8 text-white w-full bg-gradient-to-t from-black to-transparent">
                     <span class="bg-blue-600 text-xs font-bold px-2 py-1 rounded uppercase">{{ $blog->category->name }}</span>
                     <h2 class="text-4xl font-bold mt-2 leading-tight">
@@ -67,7 +68,7 @@
                             @foreach($cat->blogs as $blog)
                                 <div class="bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition">
                                     <div class="h-48 overflow-hidden bg-gray-100 relative">
-                                        <img src="{{ ($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path)) ? asset('storage/' . $blog->thumbnail_path) : "https://placehold.co/600x400/e2e8f0/1e293b?text={$cat->name}" }}" 
+                                        <img src="{{ $blog->thumbnail_url }}" 
                                              class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" 
                                              alt="{{ $blog->title }}"
                                              loading="lazy">
@@ -108,7 +109,7 @@
                                     <div class="flex-none w-72 md:w-80 snap-start">
                                         <div class="bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition h-full flex flex-col">
                                             <div class="h-40 overflow-hidden bg-gray-100 relative">
-                                                <img src="{{ ($blog->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($blog->thumbnail_path)) ? asset('storage/' . $blog->thumbnail_path) : "https://placehold.co/600x400/e2e8f0/1e293b?text={$cat->name}" }}" 
+                                                <img src="{{ $blog->thumbnail_url }}" 
                                                      class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy">
                                                 
                                                 <!-- Overlay ID for verification -->

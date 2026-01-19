@@ -15,15 +15,27 @@ class TitleSanitizerService
      */
     public function sanitizeTitle(string $title): string
     {
-        // Check for entity pattern (e.g., &rsquo;, &#039;)
-        // Only decode if an entity is likely present to avoid unnecessary processing
-        if (preg_match('/&([a-zA-Z0-9]+|#[0-9]{1,6}|#x[0-9a-fA-F]{1,6});/', $title)) {
-            // ENT_HTML5 handles HTML5 entities
-            // ENT_QUOTES decodes both double and single quotes
-            return html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // 1. Handle raw URLs
+        if (filter_var($title, FILTER_VALIDATE_URL)) {
+            $path = parse_url($title, PHP_URL_PATH) ?? $title;
+            $clean = basename($path);
+            if (empty($clean) || $clean === parse_url($title, PHP_URL_HOST)) {
+                $clean = str_replace('www.', '', parse_url($title, PHP_URL_HOST));
+            }
+            $clean = str_replace(['-', '_'], ' ', $clean);
+            $clean = preg_replace('/\.(html|php|asp|aspx)$/i', '', $clean);
+            $title = ucwords(trim($clean));
         }
 
-        return $title;
+        // 2. Check for entity pattern (e.g., &rsquo;, &#039;)
+        if (preg_match('/&([a-zA-Z0-9]+|#[0-9]{1,6}|#x[0-9a-fA-F]{1,6});/', $title)) {
+            $title = html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        // 3. Cleanup spacing
+        $title = preg_replace('/\s+/', ' ', $title);
+
+        return trim($title);
     }
 
     /**

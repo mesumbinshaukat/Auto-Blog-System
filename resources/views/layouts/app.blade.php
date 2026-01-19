@@ -19,17 +19,31 @@
 
     <link rel="icon" type="image/x-icon" href="../images/Blogs Logo (150 x 150 px).png">
 
-    <title>{{ $meta_title ?? config('app.name', 'Auto Blog System') }}</title>
-    <meta name="description" content="{{ $meta_description ?? 'Automated Tech Blogs generated daily.' }}">
+    <title>
+        @php
+            $display_title = $meta_title ?? config('app.name', 'Auto Blog System');
+            if (filter_var($display_title, FILTER_VALIDATE_URL)) {
+                $path = parse_url($display_title, PHP_URL_PATH) ?? $display_title;
+                $display_title = basename($path);
+                if (empty($display_title) || $display_title === parse_url($meta_title, PHP_URL_HOST)) {
+                    $display_title = str_replace('www.', '', parse_url($meta_title, PHP_URL_HOST));
+                }
+                $display_title = str_replace(['-', '_'], ' ', $display_title);
+                $display_title = ucwords(trim($display_title));
+            }
+        @endphp
+        {{ \Illuminate\Support\Str::limit($display_title, 70) }}
+    </title>
+    <meta name="description" content="{{ \Illuminate\Support\Str::limit($meta_description ?? 'Automated Tech Blogs generated daily.', 160) }}">
     
     <!-- Open Graph -->
-    <meta property="og:title" content="{{ $meta_title ?? config('app.name') }}">
-    <meta property="og:description" content="{{ $meta_description ?? 'Automated Tech Blogs generated daily.' }}">
+    <meta property="og:title" content="{{ \Illuminate\Support\Str::limit($display_title, 70) }}">
+    <meta property="og:description" content="{{ \Illuminate\Support\Str::limit($meta_description ?? 'Automated Tech Blogs generated daily.', 160) }}">
     <meta property="og:type" content="article">
     <meta property="og:url" content="{{ url()->current() }}">
     <meta property="og:image" content="{{ $og_image ?? asset('images/Blogs Logo (150 x 150 px)(1).png') }}">
     <meta name="twitter:image" content="{{ $og_image ?? asset('images/Blogs Logo (150 x 150 px)(1).png') }}">
-    <meta name="twitter:card" content="summary">
+    <meta name="twitter:card" content="summary_large_image">
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 

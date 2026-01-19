@@ -428,8 +428,15 @@ class ScrapingService
         return array_values(array_unique($topics));
     }
 
-    public function scrapeContent(string $url): string
+    public function scrapeContent(string $url): array
     {
+        $default = [
+            'title' => '',
+            'content' => '',
+            'meta_description' => '',
+            'og_title' => ''
+        ];
+
         // Try Scraping Hub API first
         if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
             try {
@@ -438,7 +445,12 @@ class ScrapingService
                 
                 if ($result && !empty($result['content'])) {
                     Log::info("Successfully scraped URL via Scraping Hub: $url");
-                    return $result['content'];
+                    return [
+                        'title' => $result['title'] ?? '',
+                        'content' => $result['content'],
+                        'meta_description' => $result['snippet'] ?? '',
+                        'og_title' => '' // ScrapingHub normally merges this into title
+                    ];
                 }
                 
                 Log::info("Scraping Hub returned no content, falling back to Guzzle");
@@ -459,14 +471,30 @@ class ScrapingService
             
             if (!$response->successful()) {
                 Log::warning("Scraping $url returned status: " . $response->status());
-                return "";
+                return $default;
             }
             
             $html = $response->body();
             $crawler = new Crawler($html);
 
+            // Extract Metadata
+            $title = "";
+            try {
+                $title = $crawler->filter('title')->text();
+            } catch (\Exception $e) {}
+
+            $ogTitle = "";
+            try {
+                $ogTitle = $crawler->filter('meta[property="og:title"]')->attr('content');
+            } catch (\Exception $e) {}
+
+            $metaDesc = "";
+            try {
+                $metaDesc = $crawler->filter('meta[name="description"]')->attr('content') ?? 
+                           $crawler->filter('meta[property="og:description"]')->attr('content');
+            } catch (\Exception $e) {}
+
             // Extract Main Article Content
-            // Heuristic: Identify main container by density or common tags
             $text = $crawler->filter('article p, main p, .post-content p, .article-body p, body p')->each(function (Crawler $node) {
                 $t = trim($node->text());
                 // Filter sidebar noise
@@ -477,12 +505,36 @@ class ScrapingService
             // Filter nulls
             $text = array_filter($text);
 
-            return implode("\n\n", array_slice($text, 0, 25));
+            return [
+                'title' => html_entity_decode(trim($title)),
+                'content' => implode("\n\n", array_slice($text, 0, 25)),
+                'meta_description' => html_entity_decode(trim($metaDesc ?? '')),
+                'og_title' => html_entity_decode(trim($ogTitle ?? ''))
+            ];
 
         } catch (\Exception $e) {
             Log::error("Scraping URL $url failed: " . $e->getMessage());
-            return "";
+            return $default;
         }
+    }
+
+    /**
+     * Topic validation to avoid raw URLs or malformed titles
+     */
+    public function isValidTopic(string $topic): bool
+    {
+        if (empty($topic)) return false;
+        
+        // Exclude direct URLs
+        if (preg_match('/^https?:\/\//i', $topic)) return false;
+        
+        // Exclude topics that are just strings of numbers or hex
+        if (preg_match('/^[a-f0-9\-]{10,}$/i', $topic)) return false;
+        
+        // Exclude very long strings with no spaces
+        if (strlen($topic) > 30 && !str_contains($topic, ' ')) return false;
+
+        return true;
     }
 
     /**
@@ -570,7 +622,8 @@ class ScrapingService
                 
                 Log::info("Wikipedia Found: '$title'. Scraping URL: $pageUrl");
                 
-                $content = $this->scrapeContent($pageUrl);
+                $scrapedResult = $this->scrapeContent($pageUrl);
+                $content = $scrapedResult['content'] ?? '';
                 if (!empty($content)) {
                     $researchData[] = "Source: Wikipedia ($title)\nFrom: $pageUrl\n$content";
                 } else {
@@ -596,10 +649,11 @@ class ScrapingService
                     if (preg_match('/https?:\/\/[^\s]+/', $webSearchResult, $urlMatches)) {
                         $topUrl = rtrim($urlMatches[0], "()");
                         Log::info("Attempting to scrape top search result: $topUrl");
-                        $scraped = $this->scrapeContent($topUrl);
+                        $scrapedResult = $this->scrapeContent($topUrl);
+                        $scraped = $scrapedResult['content'] ?? '';
                         if (!empty($scraped)) {
                             // Truncate to ensure it fits research data limits
-                            $researchData[] = "Cleaned overview from $topUrl:\n" . substr($scraped, 0, 2000);
+                            $researchData[] = "Additional context from $topUrl:\n" . substr($scraped, 0, 2000);
                         }
                     }
                 }

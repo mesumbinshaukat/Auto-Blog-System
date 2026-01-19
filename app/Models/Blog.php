@@ -83,17 +83,38 @@ class Blog extends Model
         }, $value);
     }
 
+    public function getTitleAttribute($value)
+    {
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            $path = parse_url($value, PHP_URL_PATH) ?? $value;
+            $title = basename($path);
+            if (empty($title) || $title === parse_url($value, PHP_URL_HOST)) {
+                $title = str_replace('www.', '', parse_url($value, PHP_URL_HOST));
+            }
+            $title = str_replace(['-', '_'], ' ', $title);
+            $title = preg_replace('/\.(html|php|asp|aspx)$/i', '', $title);
+            return ucwords(trim($title));
+        }
+        return $value;
+    }
+
     /**
      * Get the thumbnail URL
      */
     public function getThumbnailUrlAttribute(): string
     {
-        if ($this->thumbnail_path && \Storage::disk('public')->exists($this->thumbnail_path)) {
+        if ($this->thumbnail_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($this->thumbnail_path)) {
             return asset('storage/' . $this->thumbnail_path);
         }
         
         // Fallback to category default
         $categorySlug = strtolower($this->category->slug ?? 'technology');
-        return asset("storage/thumbnails/{$categorySlug}-default.svg");
+        
+        // Check if category specific default exists
+        if (\Illuminate\Support\Facades\Storage::disk('public')->exists("thumbnails/{$categorySlug}-default.svg")) {
+            return asset("storage/thumbnails/{$categorySlug}-default.svg");
+        }
+        
+        return asset("storage/thumbnails/technology-default.svg");
     }
 }
