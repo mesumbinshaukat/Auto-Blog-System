@@ -483,6 +483,11 @@ SEO & AISEO REQUIREMENTS:
     - Example: \u003ca href='https://www.wikipedia.org/...' rel='dofollow' target='_blank'\u003edescriptive anchor\u003c/a\u003e
 - **Formatting**: Maximize readability. No walls of text. Break up content visually.
 
+STRICT CONTENT RESTRICTIONS:
+- **NO SOURCE ATTRIBUTION**: NEVER write phrases like \"Source:\", \"According to...\", \"From [URL]\", or \"//[domain]...\".
+- **NO RAW URLs**: Never display raw URLs in the text. All links must be wrapped in <a> tags with anchor text.
+- **NO PLAGIARISM**: Do not repeat sentences from the research context. Rephrase everything.
+
 TONE: Make it juicy and memorable! Be enthusiastic, informative, and engaging. Your goal is to make readers think \"Wow, this is exactly what I needed to know!\"
 
 OUTPUT FORMAT: Return ONLY the HTML content, no markdown code blocks.";
@@ -496,8 +501,12 @@ OUTPUT FORMAT: Return ONLY the HTML content, no markdown code blocks.";
         }
         
         if (!empty($researchData)) {
-            $prompt .= "RESEARCH CONTEXT (Use as inspiration, do NOT copy):\n$researchData\n\n";
-            $prompt .= "IMPORTANT: This is real news/data. IMPROVISE and REPHRASE everything in your own words. Add original insights. Do not plagiarize.\n\n";
+            $prompt .= "RESEARCH CONTEXT (INTERNAL USE ONLY - DO NOT COPY):\n$researchData\n\n";
+            $prompt .= "CRITICAL INSTRUCTIONS:\n";
+            $prompt .= "1. NEVER reference the sources above by name or URL (e.g., skip \"Source: BBC\", \"According to wired.com\", etc.).\n";
+            $prompt .= "2. Write in a 100% original voice as if you are the expert.\n";
+            $prompt .= "3. IMPROVISE and REPHRASE everything. Do not plagiarize.\n";
+            $prompt .= "4. Do NOT include any \"//www.example.com/...\" artifacts.\n\n";
         }
 
         $prompt .= "INSTRUCTIONS:
@@ -671,35 +680,34 @@ Begin writing the blog post now:";
             $count = count($validParas);
 
             if ($count > 0) {
+                // Intro extraction (ensure we don't start with a URL)
+                $intro = $validParas[0];
                 $content .= "<h1>" . htmlspecialchars($title) . "</h1>\n";
-                $content .= "<p><em>Based on the latest industry reports and analyzed web data for " . htmlspecialchars($topic) . ".</em></p>\n";
-                
-                // Intro
-                $content .= "<p>" . htmlspecialchars($validParas[0]) . "</p>\n";
+                $content .= "<p>" . htmlspecialchars($intro) . "</p>\n";
                 
                 // Critical Perspective H2
                 if ($count > 1) {
-                    $content .= "<h2>Critical Perspective on " . htmlspecialchars($topic) . "</h2>\n";
+                    $content .= "<h2>In-Depth Analysis: " . htmlspecialchars($topic) . "</h2>\n";
                     $content .= "<p>" . htmlspecialchars($validParas[1]) . "</p>\n";
                 }
                 
                 // Key Elements H2 & List
                 if ($count > 3) {
-                    $content .= "<h2>Key Developments & Insights</h2>\n";
+                    $content .= "<h2>Key Developments & Critical Insights</h2>\n";
                     $content .= "<ul>\n";
-                    foreach (array_slice($validParas, 2, 4) as $p) {
-                        $content .= "<li>" . htmlspecialchars(Str::limit($p, 300)) . "</li>\n";
+                    foreach (array_slice($validParas, 2, 5) as $p) {
+                        $content .= "<li>" . htmlspecialchars(Str::limit($p, 400)) . "</li>\n";
                     }
                     $content .= "</ul>\n";
                 }
                 
                 // Conclusion H2
                 if ($count > 6) {
-                    $content .= "<h2>Conclusion</h2>\n";
+                    $content .= "<h2>Summary & Outlook</h2>\n";
                     $content .= "<p>" . htmlspecialchars($validParas[$count - 1]) . "</p>\n";
                 } else if ($count > 2) {
                      $content .= "<h2>Summary</h2>\n";
-                     $content .= "<p>In summary, these developments represent a significant shift in how " . htmlspecialchars($topic) . " is approached today. As data points continue to emerge, the long-term impact will become clearer.</p>";
+                     $content .= "<p>In short, these developments highlight a major shift in how " . htmlspecialchars($topic) . " impacts the industry. We will continue to monitor this topic as more data becomes available.</p>";
                 }
             }
 
@@ -967,21 +975,38 @@ Content:
     {
         if (empty($content)) return $content;
 
-        // Robotic Phrase Removal
-        $roboticPhrases = '/(<p[^>]*>)\s*(?:In conclusion|To sum up|Ultimately|In summary|To conclude|All in all|Based on reports|From our analysis)[:,]?\s+/i';
+        // 1. Robotic Phrase & Noise Removal (Clean starts of paragraphs)
+        $roboticPrompts = [
+            'In conclusion', 'To sum up', 'Ultimately', 'In summary', 'To conclude', 
+            'All in all', 'Based on reports', 'From our analysis', 'About Our Ads', 
+            'TRENDING', 'Story by', 'From the latest industry research', 
+            'Based on the analyzed data', 'According to the research',
+            'Based on our analysis'
+        ];
         
-        $content = preg_replace_callback($roboticPhrases, function($matches) {
-            return $matches[1];
-        }, $content);
+        foreach ($roboticPrompts as $phrase) {
+            // Match phrase at start of paragraph or after bracket, with optional colon/comma
+            $content = preg_replace('/(<p[^>]*>)\s*' . preg_quote($phrase, '/') . '[:,]?\s+/i', '$1', $content);
+        }
 
-        // Remove entire paragraphs containing noise
-        $content = preg_replace('/<p[^>]*>.*?Note: This is AI-generated.*?<\/p>/is', '', $content);
-        $content = preg_replace('/<p[^>]*>.*?Here is a blog post about.*?<\/p>/is', '', $content);
-        $content = preg_replace('/<p[^>]*>.*?Cleaned overview.*?<\/p>/is', '', $content);
-        $content = preg_replace('/<p[^>]*>.*?Based on the latest industry reports.*?<\/p>/is', '', $content);
-        $content = preg_replace('/<p[^>]*>.*?Source:.*?<\/p>/is', '', $content);
-        $content = preg_replace('/<p[^>]*>.*?For more details.*?<\/p>/is', '', $content);
+        // Remove entire paragraphs ONLY if they consist entirely of noise or metadata
+        $content = preg_replace('/<p[^>]*>\s*Note: This is AI-generated.*?\s*<\/p>/is', '', $content);
+        $content = preg_replace('/<p[^>]*>\s*Here is a blog post about.*?\s*<\/p>/is', '', $content);
+        $content = preg_replace('/<p[^>]*>\s*Cleaned overview.*?\s*<\/p>/is', '', $content);
+        $content = preg_replace('/<p[^>]*>\s*Source:.*?\s*<\/p>/is', '', $content);
+        $content = preg_replace('/<p[^>]*>\s*Advertisement.*?\s*<\/p>/is', '', $content);
+        $content = preg_replace('/<p[^>]*>\s*About Our Ads.*?\s*<\/p>/is', '', $content);
+        $content = preg_replace('/<p[^>]*>\s*Story by.*?\s*<\/p>/is', '', $content);
+        $content = preg_replace('/<p[^>]*>\s*TRENDING:.*?\s*<\/p>/is', '', $content);
         $content = preg_replace('/\[USER PROVIDED SOURCE CONTENT.*?\]/is', '', $content);
+
+        // Remove malformed URL artifacts at start of paragraphs or within text
+        // E.g. //www.wired.com/story/china-ai-boyfriends/: Jade Gu met her boyfriend online.
+        $urlArtifactPattern = '/(?<=\>|\s)\/\/[a-z0-9\-\.]+\.[a-z]{2,}(?::\d+)?\/[^\s<>"]*+(?::\s*)?/i';
+        $content = preg_replace($urlArtifactPattern, '', $content);
+        
+        // Remove standalone URLs that AI might leak in a paragraph
+        $content = preg_replace('/<p[^>]*>\s*https?:\/\/[^\s<]+\s*<\/p>/is', '', $content);
 
         // 2. DOM Processing for structural cleanup
         $dom = new \DOMDocument();

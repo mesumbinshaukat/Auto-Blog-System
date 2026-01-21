@@ -574,11 +574,32 @@ class BlogGeneratorService
         $internalCount = $currentStats['internal'];
         
         if ($limitInternal > 0 && !($options['skip_internal'] ?? false)) {
-            $relatedBlogs = Blog::where('category_id', $category->id)
-                ->where('id', '!=', $category->id)
-                ->latest()
-                ->take($limitInternal)
-                ->get();
+            $topicForLinks = $this->extractTopicFromContent($content);
+            $relatedBlogs = collect();
+            
+            if ($topicForLinks) {
+                // Get semantic keywords for searching related content
+                $searchKeywords = $this->ai->generateKeywords($topicForLinks, $category->name);
+                $keywordsArray = array_map('trim', explode(',', $searchKeywords));
+                
+                // Search for blogs that match keywords in title
+                $query = Blog::where('category_id', $category->id);
+                $query->where(function($q) use ($keywordsArray) {
+                    foreach (array_slice($keywordsArray, 0, 3) as $kw) {
+                        $q->orWhere('title', 'LIKE', "%$kw%");
+                    }
+                });
+                
+                $relatedBlogs = $query->latest()->take($limitInternal)->get();
+            }
+
+            // Fallback to latest in category if semantic search yield nothing
+            if ($relatedBlogs->isEmpty()) {
+                $relatedBlogs = Blog::where('category_id', $category->id)
+                    ->latest()
+                    ->take($limitInternal)
+                    ->get();
+            }
                 
             if ($relatedBlogs->count() > 0) {
                  $internalData = $this->insertInternalLinks($content, $relatedBlogs);

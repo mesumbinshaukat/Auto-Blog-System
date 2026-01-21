@@ -233,13 +233,60 @@ class ScrapingService
      * @param int $maxLength
      * @return string
      */
-    protected function truncateSnippet(string $text, int $maxLength = 1000): string
+    public function truncateSnippet(string $text, int $maxLength = 1000): string
     {
-        if (strlen($text) <= $maxLength) {
-            return $text;
-        }
+        if (strlen($text) <= $maxLength) return $text;
         
-        return substr($text, 0, $maxLength) . '...';
+        $text = substr($text, 0, $maxLength);
+        $lastSpace = strrpos($text, ' ');
+        
+        return ($lastSpace !== false ? substr($text, 0, $lastSpace) : $text) . '...';
+    }
+
+    /**
+     * Sanitize research snippets to remove common noise
+     */
+    protected function sanitizeResearchData(string $text): string
+    {
+        // 1. Remove obvious boilerplate phrases
+        $noise = [
+            '/Advertisement/i',
+            '/About Our Ads/i',
+            '/More From/i',
+            '/Read More/i',
+            '/Sign up for our newsletter/i',
+            '/Follow us on/i',
+            '/Copyright \d{4}/i',
+            '/All rights reserved/i',
+            '/TRENDING/i',
+            '/Story by/i',
+            '/Get the latest/i',
+            '/Click here/i',
+            '/View this post on/i'
+        ];
+        
+        $text = preg_replace($noise, '', $text);
+
+        // 2. Remove strings that look like raw UI elements or nav artifacts
+        $text = preg_replace('/^\s*(?:Home|News|Politics|Business|Tech|Sports|Entertainment|Life|Health).*?\n/im', '', $text);
+        
+        // 3. Remove lines that are just numbers or dates or single words
+        $lines = explode("\n", $text);
+        $cleanLines = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) continue;
+            
+            // Skip lines that are too short to be useful info
+            if (strlen($line) < 30 && !str_contains($line, '.')) continue;
+            
+            // Skip lines that look like a URL (raw leak)
+            if (preg_match('/^https?:\/\/[^\s]+$/i', $line)) continue;
+            
+            $cleanLines[] = $line;
+        }
+
+        return implode("\n", $cleanLines);
     }
 
     public function fetchTrendingTopics(string $category): array
@@ -663,7 +710,7 @@ class ScrapingService
         }
 
         return !empty($researchData) 
-            ? "Research findings:\n" . implode("\n\n", $researchData)
+            ? "Research findings:\n" . $this->sanitizeResearchData(implode("\n\n", $researchData))
             : "No external research available. Please generate content based on general knowledge about this topic.";
     }
 
