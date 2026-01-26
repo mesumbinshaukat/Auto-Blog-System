@@ -579,8 +579,7 @@ class BlogGeneratorService
             
             if ($topicForLinks) {
                 // Get semantic keywords for searching related content
-                $searchKeywords = $this->ai->generateKeywords($topicForLinks, $category->name);
-                $keywordsArray = array_map('trim', explode(',', $searchKeywords));
+                $keywordsArray = $this->ai->generateKeywords($topicForLinks, $category->name);
                 
                 // Search for blogs that match keywords in title
                 $query = Blog::where('category_id', $category->id);

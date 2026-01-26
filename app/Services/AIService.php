@@ -322,7 +322,7 @@ class AIService
         return ['success' => false, 'data' => null, 'source' => 'none'];
     }
 
-    protected function generateKeywords(string $topic, string $category): array
+    public function generateKeywords(string $topic, string $category): array
     {
         // Use Gemini (preferred) or basic generation for keywords
         // Simple heuristic fallback if no AI: just split topic and add category
