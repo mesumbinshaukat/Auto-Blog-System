@@ -236,10 +236,14 @@ class BlogGeneratorService
             try {
                 $optimizedData = $this->ai->optimizeAndHumanize($draft);
                 $finalContent = $optimizedData['content'];
-                $toc = $optimizedData['toc'];
+                $toc = $optimizedData['toc'] ?? [];
+                
+                if (empty($finalContent) || strlen($finalContent) < 200) {
+                    throw new \Exception("Optimization returned empty or too short content");
+                }
             } catch (\Exception $e) {
                 Log::warning("AI Optimization failed: " . $e->getMessage());
-                $logs[] = "Warning: AI Optimization failed, using raw draft.";
+                $logs[] = "Warning: AI Optimization failed or returned invalid content. Using raw draft as fallback.";
                 $finalContent = $draft;
                 $toc = [];
             }
@@ -250,7 +254,7 @@ class BlogGeneratorService
                 $finalContent = $this->ai->cleanupAIArtifacts($finalContent, $topic);
             } catch (\Exception $e) {
                 Log::warning("Artifact cleanup failed: " . $e->getMessage());
-                // Proceed with uncleaned content
+                $logs[] = "Warning: Artifact cleanup failed, using current content.";
             }
             
             // 6. Validate content

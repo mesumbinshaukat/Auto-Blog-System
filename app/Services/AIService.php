@@ -99,12 +99,6 @@ class AIService
 
     public function generateRawContent(string $topic, string $category, string $researchData = ''): string
     {
-        // Check if API key is configured
-        if (empty($this->hfKeys)) {
-            Log::warning("HUGGINGFACE_API_KEY not configured.");
-            return $this->generateMockContent($topic);
-        }
-
         // 0. Pre-generation: Keyword Research
         $keywords = $this->generateKeywords($topic, $category);
         Log::info("Target keywords: " . implode(', ', $keywords));
@@ -113,35 +107,67 @@ class AIService
         // Build comprehensive prompt
         $systemPrompt = $this->buildSystemPrompt();
         $userPrompt = $this->buildUserPrompt($topic, $category, $researchData, $keywordString);
+        $combinedPrompt = $systemPrompt . "\n\n" . $userPrompt;
 
         $result = null;
 
-        // Try each model in the list
-        foreach ($this->models as $model) {
-            Log::info("Attempting generation with model: $model");
-            $result = $this->callHuggingFaceChatCompletion($model, $systemPrompt, $userPrompt);
-            
-            if ($result) {
-                Log::info("Success with model: $model");
-                break;
+        // Tier 1: Gemini (Preferred for speed and quality)
+        Log::info("Tier 1 AI: Attempting Gemini generation...");
+        $geminiResult = $this->callGeminiWithFallback($combinedPrompt);
+        if ($geminiResult['success']) {
+            $result = $geminiResult['data'];
+            Log::info("Success with Gemini: " . str_word_count(strip_tags($result)) . " words");
+        }
+
+        // Tier 2: OpenRouter (Fallback to various free models)
+        if (!$result && !empty($this->openRouterKey)) {
+            Log::info("Tier 2 AI: Attempting OpenRouter generation...");
+            $orResult = $this->callOpenRouterWithFallback($combinedPrompt);
+            if ($orResult['success']) {
+                $result = $orResult['data'];
+                Log::info("Success with OpenRouter: " . str_word_count(strip_tags($result)) . " words");
             }
-            
-            Log::warning("Model $model failed, trying next...");
+        }
+
+        // Tier 3: HuggingFace (Legacy tier)
+        if (!$result && !empty($this->hfKeys)) {
+            Log::info("Tier 3 AI: Attempting HuggingFace generation...");
+            foreach ($this->models as $model) {
+                Log::info("Attempting generation with HF model: $model");
+                $result = $this->callHuggingFaceChatCompletion($model, $systemPrompt, $userPrompt);
+                
+                if ($result) {
+                    Log::info("Success with HF model: $model");
+                    break;
+                }
+                Log::warning("HF Model $model failed, trying next...");
+            }
+        }
+
+        // Tier 4: Scraped Fallback (Structural generation from raw data)
+        if (!$result && !empty($researchData) && !str_contains($researchData, "No external research available")) {
+            Log::error("All AI tiered generation failed. Using Tier 4: Scraped fallback.");
+            $result = $this->generateScrapedFallback($topic, $researchData);
+        }
+
+        // Tier 5: Independent AI Fallback (Generate from knowledge without research)
+        if (!$result || strlen(strip_tags($result)) < 200) {
+            Log::error("Research-based generation failed or too short. Using Tier 5: Independent AI fallback.");
+            $result = $this->generateIndependentFallback($topic, $category);
         }
 
         if (!$result) {
-            Log::error("All AI models failed. Using scraped fallback.");
-            return $this->generateScrapedFallback($topic, $researchData);
+            Log::error("ALL generation tiers failed. Using mock content.");
+            return $this->generateMockContent($topic);
         }
 
-        // Enforce minimum word count
+        // Final Polish: Enforce word counts
         $wordCount = str_word_count(strip_tags($result));
-        if ($wordCount < 500) {
+        if ($wordCount < 400) {
             Log::warning("Content too short ($wordCount words). Expanding...");
             $result = $this->expandContent($result, $topic, $systemPrompt);
         }
 
-        // Enforce maximum word count
         if ($wordCount > 5000) {
             Log::warning("Content too long ($wordCount words). Truncating...");
             $result = $this->truncateContent($result, 5000);
@@ -158,84 +184,89 @@ class AIService
      * @param int $maxRetries Max retries per key (default: 2)
      * @return array ['success' => bool, 'data' => mixed, 'source' => string]
      */
-    protected function callGeminiWithFallback(string $prompt, string $model = 'gemini-2.0-flash-exp', int $maxRetries = 2): array
+    protected function callGeminiWithFallback(string $prompt, ?string $preferredModel = null, int $maxRetries = 2): array
     {
         if (empty($this->geminiKeys)) {
             Log::info("No Gemini API keys configured");
             return ['success' => false, 'data' => null, 'source' => 'none'];
         }
+
+        $modelsToTry = array_filter([$preferredModel, 'gemini-2.0-flash-exp', 'gemini-1.5-flash']);
+        $modelsToTry = array_values(array_unique($modelsToTry));
         
         foreach ($this->geminiKeys as $keyIndex => $apiKey) {
             $keyLabel = "key_" . ($keyIndex + 1);
             
-            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                try {
-                    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
-                    
-                    $response = Http::withHeaders(['Content-Type' => 'application/json'])
-                        ->timeout(30)
-                        ->post($url, [
-                            'contents' => [['parts' => [['text' => $prompt]]]]
-                        ]);
-                    
-                    if ($response->successful()) {
-                        $data = $response->json();
-                        $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+            foreach ($modelsToTry as $model) {
+                for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                    try {
+                        Log::info("Trying Gemini model {$model} with {$keyLabel} (attempt {$attempt})");
+                        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
                         
-                        if (!empty($text)) {
-                            Log::info("Gemini API success ({$keyLabel}, attempt {$attempt})");
-                            return ['success' => true, 'data' => $text, 'source' => "gemini_{$keyLabel}"];
+                        $response = Http::withHeaders(['Content-Type' => 'application/json'])
+                            ->timeout(30)
+                            ->post($url, [
+                                'contents' => [['parts' => [['text' => $prompt]]]]
+                            ]);
+                        
+                        if ($response->successful()) {
+                            $data = $response->json();
+                            $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                            
+                            if (!empty($text)) {
+                                Log::info("Gemini API success ({$keyLabel}, model {$model}, attempt {$attempt})");
+                                return ['success' => true, 'data' => $text, 'source' => "gemini_{$keyLabel}_{$model}"];
+                            }
                         }
-                    }
-                    
-                    $status = $response->status();
-                    Log::warning("Gemini {$keyLabel} attempt {$attempt} failed: HTTP {$status}");
-                    
-                    // Handle quota exceeded (402) - skip to next key immediately
-                    if ($status === 402 || $status === 403) {
-                        Log::warning("Gemini {$keyLabel} quota exceeded (HTTP {$status}), skipping to next key");
-                        $this->quotaExceeded[] = "Gemini {$keyLabel}";
-                        break; // Skip to next key
-                    }
-                    
-                    // Handle rate limit (429) - retry with backoff
-                    if ($status === 429) {
+                        
+                        $status = $response->status();
+                        Log::warning("Gemini {$keyLabel} ({$model}) attempt {$attempt} failed: HTTP {$status}");
+                        
+                        // Handle quota exceeded (402/403 often means quota/permission)
+                        if ($status === 402 || $status === 403) {
+                            Log::warning("Gemini {$keyLabel} quota/permission issue (HTTP {$status}), skipping key");
+                            $this->quotaExceeded[] = "Gemini {$keyLabel}";
+                            goto next_key; // Skip to next key entirely
+                        }
+                        
+                        // Handle rate limit (429) - retry with backoff or move to next model if desperate
+                        if ($status === 429) {
+                            if ($attempt < $maxRetries) {
+                                $delay = pow(2, $attempt);
+                                Log::warning("Gemini limited, waiting {$delay}s...");
+                                sleep($delay);
+                                continue;
+                            } else {
+                                Log::warning("Gemini rate limit retries exhausted for {$model}, trying next model or key");
+                                break; // Try next model for same key
+                            }
+                        }
+                        
+                        // If model not found or bad request, try next model for same key
+                        if (in_array($status, [400, 404])) {
+                            Log::warning("Gemini {$keyLabel} returned {$status} for {$model}, trying next model");
+                            break; 
+                        }
+                        
+                        // Generic retry
                         if ($attempt < $maxRetries) {
-                            $delay = pow(2, $attempt); // Exponential backoff: 2s, 4s
-                            Log::warning("Gemini {$keyLabel} rate limited, retrying in {$delay}s...");
+                            $delay = pow(2, $attempt);
                             sleep($delay);
-                            continue;
-                        } else {
-                            Log::warning("Gemini {$keyLabel} rate limit retries exhausted, skipping to next key");
-                            break;
                         }
-                    }
-                    
-                    // Don't retry on 404 (model not found) or 400 (bad request)
-                    if (in_array($status, [400, 404])) {
-                        Log::warning("Gemini {$keyLabel} returned {$status}, skipping to next key");
-                        break;
-                    }
-                    
-                    // Generic retry with backoff for other errors
-                    if ($attempt < $maxRetries) {
-                        $delay = pow(2, $attempt);
-                        Log::warning("Retrying in {$delay}s...");
-                        sleep($delay);
-                    }
-                    
-                } catch (\Exception $e) {
-                    Log::warning("Gemini {$keyLabel} attempt {$attempt} exception: " . $e->getMessage());
-                    if ($attempt < $maxRetries) {
-                        $delay = pow(2, $attempt);
-                        sleep($delay);
+                        
+                    } catch (\Exception $e) {
+                        Log::warning("Gemini {$keyLabel} exception: " . $e->getMessage());
+                        if ($attempt < $maxRetries) {
+                            sleep(pow(2, $attempt));
+                        }
                     }
                 }
             }
+            next_key:
         }
         
-        // All Gemini keys failed
-        Log::info("All " . count($this->geminiKeys) . " Gemini keys exhausted");
+        // All Gemini keys and models failed
+        Log::info("All " . count($this->geminiKeys) . " Gemini keys and models exhausted");
         return ['success' => false, 'data' => null, 'source' => 'none'];
     }
 
@@ -327,19 +358,14 @@ class AIService
         // Use Gemini (preferred) or basic generation for keywords
         // Simple heuristic fallback if no AI: just split topic and add category
         
-        if (empty($this->geminiKey) && empty($this->geminiKeyFallback)) {
+        if (empty($this->geminiKeys)) {
              return [Str::slug($topic, ' '), strtolower($category), 'guide', 'tips'];
         }
 
         $prompt = "Suggest 1 primary focus keyword and 3 secondary long-tail keywords for a blog post about \"$topic\" in category \"$category\". Return ONLY the keywords as a comma-separated list.";
         
         $result = $this->callGeminiWithFallback($prompt);
-        $result = ['success' => false]; // Initialize result
-        if (!empty($this->geminiKey) || !empty($this->geminiKeyFallback)) {
-            $result = $this->callGeminiWithFallback($prompt);
-        } else {
-            Log::info("No Gemini keys configured for keyword generation.");
-        }
+        $result = $this->callGeminiWithFallback($prompt);
 
         if ($result['success']) {
             $keywords = array_map('trim', explode(',', $result['data']));
@@ -813,9 +839,21 @@ Content:
     {
         $expansionPrompt = "The following blog post about \"$topic\" is too short. Expand it by adding more detailed sections, examples, and insights. Maintain the same HTML structure and style.\n\nCurrent content:\n$content\n\nExpanded version:";
         
-        $expanded = $this->callHuggingFaceChatCompletion($this->models[0], $systemPrompt, $expansionPrompt, 2);
+        // Multi-tier fallback for expansion
+        $result = $this->callGeminiWithFallback($systemPrompt . "\n\n" . $expansionPrompt);
         
-        return $expanded ?: $content;
+        if (!$result['success'] && !empty($this->openRouterKey)) {
+            $result = $this->callOpenRouterWithFallback($systemPrompt . "\n\n" . $expansionPrompt);
+        }
+        
+        if (!$result['success'] && !empty($this->hfKeys)) {
+            $hfResult = $this->callHuggingFaceChatCompletion($this->models[0], $systemPrompt, $expansionPrompt, 2);
+            if ($hfResult) {
+                return $hfResult;
+            }
+        }
+        
+        return $result['success'] ? $result['data'] : $content;
     }
 
     protected function truncateContent(string $content, int $maxWords): string
@@ -833,8 +871,8 @@ Content:
     {
         // Return array: ['content' => string, 'toc' => array]
         
-        if (empty($this->geminiKey) && empty($this->geminiKeyFallback)) {
-            Log::warning("GEMINI_API_KEY not configured. Skipping optimization.");
+        if (empty($this->geminiKeys)) {
+            Log::warning("Gemini keys not configured. Skipping optimization.");
             return $this->validateAndFixHtml($content);
         }
 
@@ -1112,6 +1150,33 @@ Content:
         $html = preg_replace('/<\/?body>/', '', $html);
         
         return trim($html);
+    }
+
+    /**
+     * Smart Fallback: Generate content using AI internal knowledge when research is unavailable
+     */
+    public function generateIndependentFallback(string $topic, string $category): string
+    {
+        Log::info("Generating independent AI fallback for: $topic ($category)");
+        
+        $prompt = "Write a professional, comprehensive, and SEO-optimized blog post about \"$topic\" in the \"$category\" category. 
+        Since no external research is available, use your general knowledge to provide an insightful, high-quality article.
+        Include headings (h1, h2), paragraphs, and lists. Ensure a Juiciness level of 10/10.";
+
+        // Try Gemini first as it has best general knowledge
+        $result = $this->callGeminiWithFallback($prompt);
+        if ($result['success']) {
+            return $result['data'];
+        }
+
+        // Try OpenRouter
+        $result = $this->callOpenRouterWithFallback($prompt);
+        if ($result['success']) {
+            return $result['data'];
+        }
+
+        // Final Mock
+        return $this->generateMockContent($topic);
     }
 
     protected function generateMockContent(string $topic): string
