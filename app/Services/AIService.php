@@ -5,6 +5,8 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
+use Google\Auth\Credentials\ServiceAccountCredentials;
 
 class AIService
 {
@@ -12,6 +14,14 @@ class AIService
     protected $hfKeys = [];
     protected $openRouterKey;
     protected $quotaExceeded = []; // Track APIs that hit quota
+
+    // Vertex AI Configuration
+    protected $vertexProjectId;
+    protected $vertexClientEmail;
+    protected $vertexPrivateKey;
+    protected $vertexTokenLimit;
+    protected $vertexLocation = 'us-central1';
+    protected $vertexModel = 'gemini-2.0-flash';
     
     // Priority list of HuggingFace models to try
     protected $models = [
@@ -34,6 +44,12 @@ class AIService
         $this->geminiKeys = $this->loadApiKeysArray('GEMINI_API_KEY_ARR');
         $this->hfKeys = $this->loadApiKeysArray('HUGGINGFACE_API_KEY_ARR');
         
+        // Vertex AI Credentials
+        $this->vertexProjectId = env('VERTEX_AI_PROJECT_ID');
+        $this->vertexClientEmail = env('VERTEX_AI_CLIENT_EMAIL');
+        $this->vertexPrivateKey = env('VERTEX_AI_PRIVATE_KEY');
+        $this->vertexTokenLimit = (int) env('VERTEX_AI_DAILY_TOKEN_LIMIT', 50000);
+
         // Backward compatibility: load legacy single keys if array keys are empty
         if (empty($this->geminiKeys)) {
             $legacyKeys = array_filter([
@@ -111,7 +127,15 @@ class AIService
 
         $result = null;
 
-        // Tier 1: Gemini (Preferred for speed and quality)
+        // Tier 0: Vertex AI (Primary - with 50k token limit)
+        Log::info("Tier 0 AI: Attempting Vertex AI generation (Project: {$this->vertexProjectId})...");
+        $vertexResult = $this->callVertexAIWithFallback($combinedPrompt);
+        if ($vertexResult['success']) {
+            $result = $vertexResult['data'];
+            Log::info("Success with Vertex AI: " . str_word_count(strip_tags($result)) . " words");
+        }
+
+        // Tier 1: Gemini (Standard API Key fallback)
         Log::info("Tier 1 AI: Attempting Gemini generation...");
         $geminiResult = $this->callGeminiWithFallback($combinedPrompt);
         if ($geminiResult['success']) {
@@ -174,6 +198,136 @@ class AIService
         }
 
         return $result;
+    }
+
+    /**
+     * Call Vertex AI Gemini API using Service Account OAuth2
+     * Includes daily token tracking and 50k limit enforcement
+     */
+    protected function callVertexAIWithFallback(string $prompt): array
+    {
+        if (empty($this->vertexProjectId) || empty($this->vertexPrivateKey)) {
+            Log::warning("Vertex AI not configured");
+            return ['success' => false, 'data' => null];
+        }
+
+        // 1. Check Daily Token Limit
+        $today = now()->format('Y-m-d');
+        $cacheKey = "vertex_ai_tokens_{$today}";
+        $usedTokens = (int) Cache::get($cacheKey, 0);
+
+        if ($usedTokens >= $this->vertexTokenLimit) {
+            Log::warning("Vertex AI daily token limit reached ($usedTokens / {$this->vertexTokenLimit})");
+            $this->quotaExceeded[] = 'Vertex AI (Daily Limit)';
+            return ['success' => false, 'data' => null];
+        }
+
+        try {
+            // 2. Get OAuth2 Token
+            $accessToken = $this->getVertexAccessToken();
+            if (!$accessToken) {
+                return ['success' => false, 'data' => null];
+            }
+
+            // 3. Multi-tier Fallback for Models and Locations
+            $models = ['gemini-1.5-flash', 'gemini-1.5-flash-002', 'gemini-2.0-flash-001', 'gemini-1.5-pro'];
+            $locations = ['us-central1', 'us-east1', 'global'];
+            
+            foreach ($locations as $location) {
+                foreach ($models as $model) {
+                    $endpoint = "https://{$location}-aiplatform.googleapis.com/v1/projects/{$this->vertexProjectId}/locations/{$location}/publishers/google/models/{$model}:generateContent";
+
+                    $response = Http::withToken($accessToken)
+                        ->withoutVerifying() // Required for some local Windows environments
+                        ->timeout(120)
+                        ->post($endpoint, [
+                            'contents' => [
+                                [
+                                    'role' => 'user',
+                                    'parts' => [['text' => $prompt]]
+                                ]
+                            ],
+                            'generationConfig' => [
+                                'temperature' => 0.7,
+                                'maxOutputTokens' => 8192,
+                                'topP' => 0.95,
+                            ]
+                        ]);
+
+                    if ($response->successful()) {
+                        $json = $response->json();
+                        $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
+                        
+                        if ($text) {
+                            // 4. Update Token Usage
+                            $usage = $json['usageMetadata'] ?? [];
+                            $totalTokens = $usage['totalTokenCount'] ?? 0;
+                            Cache::put($cacheKey, $usedTokens + $totalTokens, now()->addDay());
+                            Log::info("Vertex AI Success ($model in $location). Tokens used: $totalTokens. Daily total: " . ($usedTokens + $totalTokens));
+                            
+                            return [
+                                'success' => true, 
+                                'data' => $text, 
+                                'model' => $model,
+                                'location' => $location,
+                                'usage' => $usage
+                            ];
+                        }
+                    } else {
+                        // Log failure but continue to next model/location
+                        Log::info("Vertex AI ($model in $location) skipped: " . $response->status());
+                        if ($response->status() === 429) {
+                             sleep(1); // Brief pause on rate limit
+                        }
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error("Vertex AI Error: " . $e->getMessage());
+        }
+
+        return ['success' => false, 'data' => null];
+    }
+
+    /**
+     * Generate OAuth2 Access Token for Vertex AI
+     */
+    protected function getVertexAccessToken(): ?string
+    {
+        $cacheKey = 'vertex_ai_access_token';
+        $token = Cache::get($cacheKey);
+
+        if ($token) {
+            return $token;
+        }
+
+        try {
+            $scopes = ['https://www.googleapis.com/auth/cloud-platform'];
+            $credentials = new ServiceAccountCredentials($scopes, [
+                'client_email' => $this->vertexClientEmail,
+                'private_key' => str_replace('\n', "\n", $this->vertexPrivateKey),
+                'project_id' => $this->vertexProjectId,
+            ]);
+
+            // Fix for local Windows environments: disable SSL verification if needed
+            $guzzleClient = new \GuzzleHttp\Client(['verify' => false]);
+            $httpHandler = function ($request, $options = []) use ($guzzleClient) {
+                return $guzzleClient->send($request, $options);
+            };
+            
+            $authToken = $credentials->fetchAuthToken($httpHandler);
+            $accessToken = $authToken['access_token'] ?? null;
+
+            if ($accessToken) {
+                // Cache for 55 minutes (typical expiry is 1 hour)
+                Cache::put($cacheKey, $accessToken, 3300);
+                return $accessToken;
+            }
+        } catch (\Exception $e) {
+            Log::error("Failed to fetch Vertex AI Access Token: " . $e->getMessage());
+        }
+
+        return null;
     }
 
     /**
@@ -1013,6 +1167,16 @@ Content:
     {
         if (empty($content)) return $content;
 
+        // 0. Resolve Unicode Escapes (e.g. \u003ch1\u003e -> <h1>)
+        // Some AI models leak these when returning raw text
+        if (str_contains($content, '\u00')) {
+            // Use json_decode to cleanly resolve escaped characters
+            $decoded = json_decode('"' . str_replace('"', '\"', $content) . '"');
+            if ($decoded !== null) {
+                $content = $decoded;
+            }
+        }
+
         // 1. Robotic Phrase & Noise Removal (Clean starts of paragraphs)
         $roboticPrompts = [
             'In conclusion', 'To sum up', 'Ultimately', 'In summary', 'To conclude', 
@@ -1037,6 +1201,10 @@ Content:
         $content = preg_replace('/<p[^>]*>\s*Story by.*?\s*<\/p>/is', '', $content);
         $content = preg_replace('/<p[^>]*>\s*TRENDING:.*?\s*<\/p>/is', '', $content);
         $content = preg_replace('/\[USER PROVIDED SOURCE CONTENT.*?\]/is', '', $content);
+
+        // Remove Leaked Keywords at ends of sentences (User report: "gone down.Groceries")
+        // Typically these are standalone capitalized words at the end of a sentence or paragraph
+        $content = preg_replace('/([.!?])\s*([A-Z][a-z]+)(?=\s*(?:<\/p>|<br|$))/u', '$1', $content);
 
         // Remove malformed URL artifacts at start of paragraphs or within text
         // E.g. //www.wired.com/story/china-ai-boyfriends/: Jade Gu met her boyfriend online.

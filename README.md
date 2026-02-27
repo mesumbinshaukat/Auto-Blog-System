@@ -134,6 +134,21 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
     - **Drift Prevention**: Automatically calculates the remaining balance to schedule, preventing overlap or over-publishing.
     - **Self-Healing Locks**: Proactively force-releases stuck scheduler/queue locks after 1 hour (enhanced from 10 minutes) with admin alerts.
 
+- **🆕 Vertex AI & Premium Content** (v6.0):
+  - **Google Vertex AI Integration**:
+    - Primary Tier 0 generation engine using `gemini-1.5-flash` and `gemini-2.0-flash`.
+    - Secure OAuth2 authentication via Service Account.
+    - Multi-regional fallback (`us-central1` → `us-east1` → `global`) to ensure 99.9% availability.
+  - **Dynamic Token Management**:
+    - Centralized daily token limit tracking (default 50,000 tokens) via Cache.
+    - Proactive skip to fallback providers (Gemini AI Studio / HF) if daily quota is reached.
+  - **Professional Content Cleanup**:
+    - Automatic Unicode decoding (e.g., `\u003c` → `<`) for perfect HTML rendering.
+    - Intelligent leaked keyword removal (strips sentence-ending keywords like "Groceries" or "Electronics").
+    - Malformed URL and artifact stripping.
+  - **Diagnostic Tools**:
+    - `php artisan blog:vertex-test`: Comprehensive connectivity and cleanup verification.
+
 - **🆕 Custom Prompt Feature** (v2.0):
   - **Admin UI**: Add specific instructions via custom prompt field (max 2000 chars)
   - **Smart Scraping**: Auto-detects URLs in prompt, scrapes content, and injects it as context.
@@ -151,7 +166,8 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 - **Frontend**: Livewire, Blade, Tailwind CSS, Alpine.js
 - **Database**: MySQL (Primary), SQLite (Backups)
 - **AI Services**:
-  - **Google Gemini API** (Primary Content & Analysis)
+  - **Google Vertex AI** (Primary Content Tier 0)
+  - **Google Gemini API** (Fallback Content & Analysis)
   - **Hugging Face Inference API** (Redundancy & Image Generation)
   - **OpenRouter API** (Tertiary Fallback - 3 free models)
   - **Mediastack News API** (Trending Topics & Research)
