@@ -21,7 +21,7 @@ class AIService
     protected $vertexPrivateKey;
     protected $vertexTokenLimit;
     protected $vertexLocation = 'us-central1';
-    protected $vertexModel = 'gemini-2.0-flash';
+    protected $vertexModel = 'gemini-2.0-flash'; // Using alias for latest stable
     
     // Priority list of HuggingFace models to try
     protected $models = [
@@ -131,15 +131,14 @@ class AIService
         Log::info("Tier 0 AI: Attempting Vertex AI generation (Project: {$this->vertexProjectId})...");
         $vertexResult = $this->callVertexAIWithFallback($combinedPrompt);
         if ($vertexResult['success']) {
-            $result = $vertexResult['data'];
+            $result = $this->cleanupAIArtifacts($vertexResult['data'], $topic);
             Log::info("Success with Vertex AI: " . str_word_count(strip_tags($result)) . " words");
         }
 
         // Tier 1: Gemini (Standard API Key fallback)
         Log::info("Tier 1 AI: Attempting Gemini generation...");
         $geminiResult = $this->callGeminiWithFallback($combinedPrompt);
-        if ($geminiResult['success']) {
-            $result = $geminiResult['data'];
+            $result = $this->cleanupAIArtifacts($geminiResult['data'], $topic);
             Log::info("Success with Gemini: " . str_word_count(strip_tags($result)) . " words");
         }
 
@@ -230,7 +229,7 @@ class AIService
             }
 
             // 3. Multi-tier Fallback for Models and Locations
-            $models = ['gemini-1.5-flash', 'gemini-1.5-flash-002', 'gemini-2.0-flash-001', 'gemini-1.5-pro'];
+            $models = ['gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-flash-002', 'gemini-1.5-pro-002'];
             $locations = ['us-central1', 'us-east1', 'global'];
             
             foreach ($locations as $location) {
@@ -345,7 +344,7 @@ class AIService
             return ['success' => false, 'data' => null, 'source' => 'none'];
         }
 
-        $modelsToTry = array_filter([$preferredModel, 'gemini-2.0-flash-exp', 'gemini-1.5-flash']);
+        $modelsToTry = array_filter([$preferredModel, 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']);
         $modelsToTry = array_values(array_unique($modelsToTry));
         
         foreach ($this->geminiKeys as $keyIndex => $apiKey) {
@@ -355,7 +354,9 @@ class AIService
                 for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
                     try {
                         Log::info("Trying Gemini model {$model} with {$keyLabel} (attempt {$attempt})");
-                        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                        // Try v1 first, then v1beta if it fails or for specific models
+                        $apiVersion = (str_contains($model, 'exp') || str_contains($model, 'latest')) ? 'v1beta' : 'v1';
+                        $url = "https://generativelanguage.googleapis.com/{$apiVersion}/models/{$model}:generateContent?key={$apiKey}";
                         
                         $response = Http::withHeaders(['Content-Type' => 'application/json'])
                             ->timeout(30)
@@ -1171,7 +1172,10 @@ Content:
         // Some AI models leak these when returning raw text
         if (str_contains($content, '\u00')) {
             // Use json_decode to cleanly resolve escaped characters
-            $decoded = json_decode('"' . str_replace('"', '\"', $content) . '"');
+            // Handle cases where content is wrapped in quotes or not
+            $testStr = $content;
+            if (!str_starts_with($testStr, '"')) $testStr = '"' . str_replace('"', '\"', $testStr) . '"';
+            $decoded = json_decode($testStr);
             if ($decoded !== null) {
                 $content = $decoded;
             }
