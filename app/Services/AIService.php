@@ -1182,7 +1182,7 @@ Content:
         
         // Clean up malformed header artifacts often seen in Starmer/recent blogs
         // E.g. <h3 id=""></h3>Topic</strong> -> <h3>Topic</h3>
-        $content = preg_replace('/<h3[^>]*>\s*<\/h3>\s*(?:<strong>|<b>)?(.*?)(?:<\/strong>|<\/b>)?/is', '<h3>$1</h3>', $content);
+        $content = preg_replace('/<h3[^>]*>\s*<\/h3>\s*(?:<strong>|<b>)?([^<\n]+)(?:<\/strong>|<\/b>)?/is', '<h3>$1</h3>', $content);
         
         // Clean up "--- ###" or similar header leaks
         $content = preg_replace('/---\s*###\s*(<strong>|<b>)?(.*?)(<\/strong>|<\/b>)?/i', '<h3>$2</h3>', $content);

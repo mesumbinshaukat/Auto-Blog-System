@@ -13,14 +13,14 @@ class BlogUnicodeCleanup extends Command
      *
      * @var string
      */
-    protected $signature = 'blog:cleanup-unicode {id? : Optional ID of the blog to clean}';
+    protected $signature = 'blog:cleanup-unicode {id? : Optional ID of the blog to clean} {--force : Force cleanup even if no known artifacts are detected}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Clean up Unicode escaped characters (like \u003c) from blog content and meta fields';
+    protected $description = 'Clean up Unicode escaped characters and malformed Markdown artifacts';
 
     /**
      * Execute the console command.
@@ -28,6 +28,7 @@ class BlogUnicodeCleanup extends Command
     public function handle()
     {
         $id = $this->argument('id');
+        $force = $this->option('force');
 
         if ($id) {
             $blogs = Blog::where('id', $id)->get();
@@ -35,7 +36,7 @@ class BlogUnicodeCleanup extends Command
             $blogs = Blog::all();
         }
 
-        $this->info("Found " . $blogs->count() . " blog(s) to check for Unicode issues.");
+        $this->info("Found " . $blogs->count() . " blog(s) to check (Force: " . ($force ? 'Yes' : 'No') . ").");
 
         $bar = $this->output->createProgressBar($blogs->count());
         $fixedCount = 0;
@@ -46,30 +47,36 @@ class BlogUnicodeCleanup extends Command
             $newMetaDesc = $blog->meta_description;
             $newTitle = $blog->title;
 
-            // Check and decode Content
-            if (str_contains($newContent, '\u00') || str_contains($newContent, '**') || str_contains($newContent, '---')) {
+            // Check if we should process this blog
+            $hasKnownArtifacts = (
+                str_contains($newContent, '\u00') || str_contains($newContent, '**') || 
+                str_contains($newContent, '---') || str_contains($newContent, '</h3>')
+            );
+
+            if ($force || $hasKnownArtifacts) {
+                // Process Content
                 $decoded = $this->fullCleanup($newContent);
                 if ($decoded && $decoded !== $newContent) {
                     $newContent = $decoded;
                     $needsUpdate = true;
                 }
-            }
 
-            // Check and decode Meta Description
-            if (str_contains($newMetaDesc, '\u00') || str_contains($newMetaDesc, '**')) {
-                $decoded = $this->fullCleanup($newMetaDesc);
-                if ($decoded && $decoded !== $newMetaDesc) {
-                    $newMetaDesc = $decoded;
-                    $needsUpdate = true;
+                // Process Meta Description
+                if ($force || str_contains($newMetaDesc, '\u00') || str_contains($newMetaDesc, '**')) {
+                    $decoded = $this->fullCleanup($newMetaDesc);
+                    if ($decoded && $decoded !== $newMetaDesc) {
+                        $newMetaDesc = $decoded;
+                        $needsUpdate = true;
+                    }
                 }
-            }
 
-            // Check and decode Title
-            if (str_contains($newTitle, '\u00') || str_contains($newTitle, '**')) {
-                $decoded = $this->fullCleanup($newTitle);
-                if ($decoded && $decoded !== $newTitle) {
-                    $newTitle = $decoded;
-                    $needsUpdate = true;
+                // Process Title
+                if ($force || str_contains($newTitle, '\u00') || str_contains($newTitle, '**')) {
+                    $decoded = $this->fullCleanup($newTitle);
+                    if ($decoded && $decoded !== $newTitle) {
+                        $newTitle = $decoded;
+                        $needsUpdate = true;
+                    }
                 }
             }
 
@@ -109,7 +116,7 @@ class BlogUnicodeCleanup extends Command
 
             // 3. Header and Divider Cleanup
             // Fix malformed header artifacts like <h3 id=""></h3>Topic</strong> -> <h3>Topic</h3>
-            $content = preg_replace('/<h3[^>]*>\s*<\/h3>\s*(?:<strong>|<b>)?(.*?)(?:<\/strong>|<\/b>)?/is', '<h3>$1</h3>', $content);
+            $content = preg_replace('/<h3[^>]*>\s*<\/h3>\s*(?:<strong>|<b>)?([^<\n]+)(?:<\/strong>|<\/b>)?/is', '<h3>$1</h3>', $content);
             
             // Clean up "--- ###" or similar header leaks
             $content = preg_replace('/---\s*###\s*(<strong>|<b>)?(.*?)(<\/strong>|<\/b>)?/i', '<h3>$2</h3>', $content);
@@ -126,4 +133,5 @@ class BlogUnicodeCleanup extends Command
             return $content;
         }
     }
+}
 }
