@@ -228,8 +228,7 @@ class AIService
                 return ['success' => false, 'data' => null];
             }
 
-            // 3. Multi-tier Fallback for Models and Locations
-            $models = ['gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-flash-002', 'gemini-1.5-pro-002'];
+            $models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-001', 'gemini-1.5-flash-002', 'gemini-1.5-pro-002'];
             $locations = ['us-central1', 'us-east1', 'global'];
             
             foreach ($locations as $location) {
