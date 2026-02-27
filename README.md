@@ -134,20 +134,22 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
     - **Drift Prevention**: Automatically calculates the remaining balance to schedule, preventing overlap or over-publishing.
     - **Self-Healing Locks**: Proactively force-releases stuck scheduler/queue locks after 1 hour (enhanced from 10 minutes) with admin alerts.
 
-- **🆕 Vertex AI & Premium Content** (v6.0):
-  - **Google Vertex AI Integration**:
-    - Primary Tier 0 generation engine using `gemini-1.5-flash` and `gemini-2.0-flash`.
-    - Secure OAuth2 authentication via Service Account.
-    - Multi-regional fallback (`us-central1` → `us-east1` → `global`) to ensure 99.9% availability.
-  - **Dynamic Token Management**:
-    - Centralized daily token limit tracking (default 50,000 tokens) via Cache.
-    - Proactive skip to fallback providers (Gemini AI Studio / HF) if daily quota is reached.
-  - **Professional Content Cleanup**:
-    - Automatic Unicode decoding (e.g., `\u003c` → `<`) for perfect HTML rendering.
-    - Intelligent leaked keyword removal (strips sentence-ending keywords like "Groceries" or "Electronics").
-    - Malformed URL and artifact stripping.
-  - **Diagnostic Tools**:
-    - `php artisan blog:vertex-test`: Comprehensive connectivity and cleanup verification.
+- **🆕 Vertex AI & Premium Content** (v6.0-6.1):
+  - **Google Vertex AI Integration**: Primary Tier 0 generation engine using `gemini-1.5-flash` and `gemini-2.0-flash`.
+  - **Stable Model Aliases**: Automatically maps region-specific models to stable aliases for future-proofing.
+  - **Daily Token Tracking**: Centralized 50,000 token limit enforcement via Cache.
+  - **Enhanced Diagnostics**: `php artisan blog:vertex-test` for OAuth2 and quota verification.
+
+- **🆕 Remote Management & Aggressive Cleanup** (v7.0):
+  - **MCP Server Integration**: Secure, lightweight bridge for remote management from the IDE (`public/mcp.php`). See [MCP.md](file:///e:/Projects/blogs.worldoftech.company/MCP.md).
+  - **Aggressive Content Normalization**:
+    - **Unicode Decoding**: Fully resolves character escapes like `\u003c` in content and meta tags.
+    - **Markdown-to-HTML**: Automatically converts `**bold**` and `*italic*` artifacts to standard HTML.
+    - **Malformed Tag Repair**: Specifically fixes malformed header tags (e.g., `<h3></h3>Topic</strong>`) often leaked by AI.
+    - **Separator Stripping**: Automatically removes trailing Markdown artifacts (e.g., `---`) from generated paragraphs.
+  - **Advanced Cleanup Commands**:
+    - `php artisan blog:cleanup-unicode`: Comprehensive restoration tool for existing database records.
+    - Support for `--id` and `--force` flags to guarantee a zero-artifact repository.
 
 - **🆕 Custom Prompt Feature** (v2.0):
   - **Admin UI**: Add specific instructions via custom prompt field (max 2000 chars)
@@ -322,6 +324,23 @@ To mass-generate 3 high-quality blogs for testing:
 php artisan db:seed --class=EnhancedContentSeeder
 ```
 
+### AI Content Cleanup & Restoration
+The system provides several tools to clean robotic phrases, Unicode artifacts, and Markdown leakage:
+
+```bash
+# NEW: Comprehensive cleanup (Unicode, malformed headers, Markdown artifacts)
+php artisan blog:cleanup-unicode
+
+# Options:
+# Clean a specific blog ID
+php artisan blog:cleanup-unicode 123
+# Force re-evaluation of all 400+ blogs using refined regex
+php artisan blog:cleanup-unicode --force
+
+# Legacy: Reformat specific HTML compliance issues
+php artisan blog:reformat
+```
+
 ### Title Sanitization
 The system includes a service to clean malformed HTML entities from blog titles (e.g. `User&rsquo;s` -> `User’s`).
 ```bash
@@ -329,16 +348,6 @@ The system includes a service to clean malformed HTML entities from blog titles 
 php artisan blog:fix-titles
 ```
 *Note: This runs daily via the scheduler.*
-
-### AI Content Cleanup (Artifact Removal)
-To retroactively clean up robotic phrases ("In conclusion") and excessive bolding from existing blogs:
-```bash
-# Clean all blogs
-php artisan blog:reformat
-
-# Clean specific blog
-php artisan blog:reformat 123
-```
 
 ### Enhanced SEO Fixes & Retrofitting
 To retroactively fix SEO meta tags, validate external links, and inject missing internal links for existing blogs:
