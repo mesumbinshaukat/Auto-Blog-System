@@ -134,4 +134,3 @@ class BlogUnicodeCleanup extends Command
         }
     }
 }
-}
