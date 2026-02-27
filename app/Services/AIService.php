@@ -136,10 +136,13 @@ class AIService
         }
 
         // Tier 1: Gemini (Standard API Key fallback)
-        Log::info("Tier 1 AI: Attempting Gemini generation...");
-        if ($geminiResult['success']) {
-            $result = $this->cleanupAIArtifacts($geminiResult['data'], $topic);
-            Log::info("Success with Gemini: " . str_word_count(strip_tags($result)) . " words");
+        if (!$result) {
+            Log::info("Tier 1 AI: Attempting Gemini generation...");
+            $geminiResult = $this->callGeminiWithFallback($combinedPrompt);
+            if ($geminiResult['success']) {
+                $result = $this->cleanupAIArtifacts($geminiResult['data'], $topic);
+                Log::info("Success with Gemini: " . str_word_count(strip_tags($result)) . " words");
+            }
         }
 
         // Tier 2: OpenRouter (Fallback to various free models)
