@@ -1,32 +1,50 @@
 <?php
 /**
- * Simple MCP Server for Hostinger Shared Hosting
+ * MCP Server for Hostinger Shared Hosting — Streamable HTTP Transport
  * Site: https://blogs.worldoftech.company
- * 
- * This file provides Model Context Protocol (MCP) tools for remote management.
- * It is placed in the public/ directory to be accessible via web.
- * Security is handled via X-MCP-Token header matched against .env.
+ *
+ * Implements MCP 2024-11-05 Streamable HTTP transport:
+ *   GET  /mcp.php  → SSE endpoint (for server-initiated messages, returns empty stream)
+ *   POST /mcp.php  → JSON-RPC 2.0 endpoint
+ *
+ * Auth: X-MCP-Token header must match MCP_SECRET_TOKEN in .env
  */
 
-// ─── Load Environment Helper ────────────────────────────────────────────────
+// ─── CORS & Transport Headers ────────────────────────────────────────────────
+
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
+header("Access-Control-Allow-Origin: $origin");
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-MCP-Token, Mcp-Session-Id, Accept');
+header('Access-Control-Expose-Headers: Mcp-Session-Id');
+header('Access-Control-Allow-Credentials: true');
+
+// Handle CORS preflight
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
+// ─── Load Environment Helper ─────────────────────────────────────────────────
+
 function get_env_var($key, $default = null) {
     $envFile = __DIR__ . '/../.env';
     if (!file_exists($envFile)) return $default;
-    
+
     $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     foreach ($lines as $line) {
         if (strpos(trim($line), '#') === 0) continue;
         if (strpos($line, '=') === false) continue;
-        
+
         list($name, $value) = array_pad(explode('=', $line, 2), 2, null);
         if (trim($name) === $key) {
-            $value = trim($value);
-            // Handle quoted values
-            return trim($value, '"\'');
+            return trim(trim($value), '"\'');
         }
     }
     return $default;
 }
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
 
 $secret = get_env_var('MCP_SECRET_TOKEN');
 if (!$secret) {
@@ -36,9 +54,7 @@ if (!$secret) {
 }
 
 define('SECRET_TOKEN', $secret);
-define('BASE_DIR', realpath(__DIR__ . '/..')); // Restrict all file ops to project root
-
-// ─── Auth ───────────────────────────────────────────────────────────────────
+define('BASE_DIR', realpath(__DIR__ . '/..'));
 
 $authHeader = $_SERVER['HTTP_X_MCP_TOKEN'] ?? '';
 if ($authHeader !== SECRET_TOKEN) {
@@ -47,14 +63,10 @@ if ($authHeader !== SECRET_TOKEN) {
     die(json_encode(['error' => 'Unauthorized']));
 }
 
-// ─── Request Parsing ─────────────────────────────────────────────────────────
+// ─── Session ID ──────────────────────────────────────────────────────────────
 
-header('Content-Type: application/json');
-$raw   = file_get_contents('php://input');
-$req   = json_decode($raw, true);
-$id    = $req['id']    ?? null;
-$method = $req['method'] ?? '';
-$params = $req['params'] ?? [];
+$sessionId = $_SERVER['HTTP_MCP_SESSION_ID'] ?? bin2hex(random_bytes(16));
+header('Mcp-Session-Id: ' . $sessionId);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -70,22 +82,18 @@ function err($id, $msg, $code = -32000) {
 
 /** Ensure path stays inside BASE_DIR */
 function safe_path($rel) {
-    $full = realpath(BASE_DIR . DIRECTORY_SEPARATOR . ltrim($rel, '/'));
-    if ($full === false) {
-        // Path doesn't exist yet — construct it manually and validate prefix
-        $full = BASE_DIR . DIRECTORY_SEPARATOR . ltrim($rel, '/');
-    }
-    // Convert to canonical path for comparison
+    $rel = ltrim(str_replace(['../', '..\\'], '', $rel), '/\\');
+    $full = BASE_DIR . DIRECTORY_SEPARATOR . $rel;
     $full = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $full);
     $base = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, BASE_DIR);
-    
-    if (strpos($full, $base) !== 0) {
-        return null; // Path escape attempt
+
+    if (strpos(realpath($full) ?: $full, $base) !== 0) {
+        return null;
     }
     return $full;
 }
 
-// ─── Tool Definitions ────────────────────────────────────────────────────────
+// ─── Tool Definitions ─────────────────────────────────────────────────────────
 
 $tools = [
     [
@@ -152,42 +160,67 @@ $tools = [
     ],
 ];
 
-// ─── MCP Method Routing ──────────────────────────────────────────────────────
+// ─── GET → SSE endpoint (required by Streamable HTTP spec) ───────────────────
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    // Return a minimal SSE stream that stays open briefly then closes.
+    // The MCP client will use POST for actual RPC calls.
+    header('Content-Type: text/event-stream');
+    header('Cache-Control: no-cache');
+    header('X-Accel-Buffering: no');
+
+    // Send a simple ping so the client knows the connection is alive, then close.
+    echo ": MCP SSE endpoint ready\n\n";
+    flush();
+    exit;
+}
+
+// ─── POST → JSON-RPC 2.0 ─────────────────────────────────────────────────────
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    header('Content-Type: application/json');
+    die(json_encode(['error' => 'Method not allowed']));
+}
+
+header('Content-Type: application/json');
+
+$raw    = file_get_contents('php://input');
+$req    = json_decode($raw, true);
+$id     = $req['id']     ?? null;
+$method = $req['method'] ?? '';
+$params = $req['params'] ?? [];
+
+// ─── MCP Method Routing ───────────────────────────────────────────────────────
 
 switch ($method) {
 
-    // Handshake
     case 'initialize':
         ok($id, [
             'protocolVersion' => '2024-11-05',
-            'serverInfo'      => ['name' => 'hostinger-mcp', 'version' => '1.0.0'],
+            'serverInfo'      => ['name' => 'hostinger-mcp', 'version' => '1.1.0'],
             'capabilities'    => ['tools' => new stdClass()],
         ]);
 
     case 'initialized':
         ok($id, new stdClass());
 
-    // List tools
     case 'tools/list':
         ok($id, ['tools' => $tools]);
 
-    // Execute a tool
     case 'tools/call':
         $name      = $params['name']      ?? '';
         $arguments = $params['arguments'] ?? [];
 
         switch ($name) {
 
-            // ── read_file ──────────────────────────────────────────────────
             case 'read_file': {
                 $path = safe_path($arguments['path'] ?? '');
-                if (!$path)          err($id, 'Invalid or unsafe path.');
+                if (!$path)              err($id, 'Invalid or unsafe path.');
                 if (!file_exists($path)) err($id, "File not found: {$arguments['path']}");
-                $content = file_get_contents($path);
-                ok($id, ['content' => [['type' => 'text', 'text' => $content]]]);
+                ok($id, ['content' => [['type' => 'text', 'text' => file_get_contents($path)]]]);
             }
 
-            // ── write_file ─────────────────────────────────────────────────
             case 'write_file': {
                 $path    = safe_path($arguments['path'] ?? '');
                 $content = $arguments['content'] ?? '';
@@ -198,16 +231,14 @@ switch ($method) {
                 ok($id, ['content' => [['type' => 'text', 'text' => "Written: {$arguments['path']}"]]]); 
             }
 
-            // ── delete_file ────────────────────────────────────────────────
             case 'delete_file': {
                 $path = safe_path($arguments['path'] ?? '');
-                if (!$path)          err($id, 'Invalid or unsafe path.');
+                if (!$path)              err($id, 'Invalid or unsafe path.');
                 if (!file_exists($path)) err($id, 'File not found.');
                 unlink($path);
                 ok($id, ['content' => [['type' => 'text', 'text' => "Deleted: {$arguments['path']}"]]]); 
             }
 
-            // ── list_dir ───────────────────────────────────────────────────
             case 'list_dir': {
                 $path = safe_path($arguments['path'] ?? '.');
                 if (!$path || !is_dir($path)) err($id, 'Directory not found.');
@@ -216,50 +247,46 @@ switch ($method) {
                 $out = [];
                 foreach ($entries as $e) {
                     if ($e === '.' || $e === '..') continue;
-                    $full = $path . DIRECTORY_SEPARATOR . $e;
+                    $full   = $path . DIRECTORY_SEPARATOR . $e;
                     $prefix = is_dir($full) ? '[DIR]  ' : '[FILE] ';
-                    $size = is_file($full) ? ' (' . number_format(filesize($full)) . ' bytes)' : '';
-                    $out[] = $prefix . $e . $size;
+                    $size   = is_file($full) ? ' (' . number_format(filesize($full)) . ' bytes)' : '';
+                    $out[]  = $prefix . $e . $size;
                 }
                 ok($id, ['content' => [['type' => 'text', 'text' => implode("\n", $out)]]]);
             }
 
-            // ── run_command ────────────────────────────────────────────────
             case 'run_command': {
                 $cmd = $arguments['command'] ?? '';
                 if (empty($cmd)) err($id, 'No command provided.');
                 if (!function_exists('shell_exec') || in_array('shell_exec', array_map('trim', explode(',', ini_get('disable_functions'))))) {
-                    err($id, 'shell_exec() is disabled on this host. Deployment via write_file still works.');
+                    err($id, 'shell_exec() is disabled on this host.');
                 }
-                // Run from BASE_DIR
                 $output = shell_exec('cd ' . escapeshellarg(BASE_DIR) . ' && ' . $cmd . ' 2>&1');
                 ok($id, ['content' => [['type' => 'text', 'text' => $output ?? '(no output)']]]);
             }
 
-            // ── read_php_log ───────────────────────────────────────────────
             case 'read_php_log': {
                 $lines   = intval($arguments['lines'] ?? 50);
                 $logPath = ini_get('error_log');
                 if (!$logPath || !file_exists($logPath)) {
-                    err($id, 'PHP error log not found or path not configured. Check php.ini error_log directive.');
+                    err($id, 'PHP error log not found or path not configured.');
                 }
                 $all  = file($logPath);
                 $tail = array_slice($all, -$lines);
                 ok($id, ['content' => [['type' => 'text', 'text' => implode('', $tail)]]]);
             }
 
-            // ── php_info ───────────────────────────────────────────────────
             case 'php_info': {
                 $info = [
-                    'php_version'       => PHP_VERSION,
-                    'server_software'   => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
-                    'document_root'     => $_SERVER['DOCUMENT_ROOT']   ?? 'unknown',
-                    'mcp_base_dir'      => BASE_DIR,
-                    'upload_max_filesize' => ini_get('upload_max_filesize'),
-                    'post_max_size'     => ini_get('post_max_size'),
-                    'max_execution_time'=> ini_get('max_execution_time'),
-                    'disabled_functions'=> ini_get('disable_functions') ?: 'none',
-                    'error_log'         => ini_get('error_log') ?: 'not set',
+                    'php_version'          => PHP_VERSION,
+                    'server_software'      => $_SERVER['SERVER_SOFTWARE'] ?? 'unknown',
+                    'document_root'        => $_SERVER['DOCUMENT_ROOT']   ?? 'unknown',
+                    'mcp_base_dir'         => BASE_DIR,
+                    'upload_max_filesize'  => ini_get('upload_max_filesize'),
+                    'post_max_size'        => ini_get('post_max_size'),
+                    'max_execution_time'   => ini_get('max_execution_time'),
+                    'disabled_functions'   => ini_get('disable_functions') ?: 'none',
+                    'error_log'            => ini_get('error_log') ?: 'not set',
                     'shell_exec_available' => function_exists('shell_exec') ? 'yes' : 'no',
                 ];
                 $text = '';
