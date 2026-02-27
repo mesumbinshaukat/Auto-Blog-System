@@ -47,8 +47,8 @@ class BlogUnicodeCleanup extends Command
             $newTitle = $blog->title;
 
             // Check and decode Content
-            if (str_contains($newContent, '\u00')) {
-                $decoded = $this->decodeUnicode($newContent);
+            if (str_contains($newContent, '\u00') || str_contains($newContent, '**') || str_contains($newContent, '---')) {
+                $decoded = $this->fullCleanup($newContent);
                 if ($decoded && $decoded !== $newContent) {
                     $newContent = $decoded;
                     $needsUpdate = true;
@@ -56,8 +56,8 @@ class BlogUnicodeCleanup extends Command
             }
 
             // Check and decode Meta Description
-            if (str_contains($newMetaDesc, '\u00')) {
-                $decoded = $this->decodeUnicode($newMetaDesc);
+            if (str_contains($newMetaDesc, '\u00') || str_contains($newMetaDesc, '**')) {
+                $decoded = $this->fullCleanup($newMetaDesc);
                 if ($decoded && $decoded !== $newMetaDesc) {
                     $newMetaDesc = $decoded;
                     $needsUpdate = true;
@@ -65,8 +65,8 @@ class BlogUnicodeCleanup extends Command
             }
 
             // Check and decode Title
-            if (str_contains($newTitle, '\u00')) {
-                $decoded = $this->decodeUnicode($newTitle);
+            if (str_contains($newTitle, '\u00') || str_contains($newTitle, '**')) {
+                $decoded = $this->fullCleanup($newTitle);
                 if ($decoded && $decoded !== $newTitle) {
                     $newTitle = $decoded;
                     $needsUpdate = true;
@@ -91,29 +91,41 @@ class BlogUnicodeCleanup extends Command
     }
 
     /**
-     * Decode Unicode escaped strings safely
+     * Decode Unicode and clean Markdown artifacts
      */
-    private function decodeUnicode(string $content): ?string
+    private function fullCleanup(string $content): ?string
     {
         try {
-            // Handle cases where content is wrapped in quotes or not
-            $testStr = $content;
-            if (!str_starts_with($testStr, '"')) {
-                $testStr = '"' . str_replace('"', '\"', $testStr) . '"';
+            // 1. Resolve Unicode Escapes
+            if (str_contains($content, '\u00')) {
+                $testStr = $content;
+                if (!str_starts_with($testStr, '"')) {
+                    $testStr = '"' . str_replace('"', '\"', $testStr) . '"';
+                }
+                
+                $decoded = json_decode($testStr);
+                
+                if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+                    // Fallback for very complex strings
+                    $content = preg_replace_callback('/\\\\u([0-9a-fA-F]{4})/', function ($match) {
+                        return mb_convert_encoding(pack('H*', $match[1]), 'UTF-8', 'UCS-2BE');
+                    }, $content);
+                } else if ($decoded !== null) {
+                    $content = $decoded;
+                }
             }
-            
-            $decoded = json_decode($testStr);
-            
-            if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
-                // Fallback for very complex strings
-                return preg_replace_callback('/\\\\u([0-9a-fA-F]{4})/', function ($match) {
-                    return mb_convert_encoding(pack('H*', $match[1]), 'UTF-8', 'UCS-2BE');
-                }, $content);
-            }
-            
-            return $decoded;
+
+            // 2. Markdown Bold/Italic Cleanup
+            $content = preg_replace('/\*\*(.*?)\*\*/u', '<strong>$1</strong>', $content);
+            $content = preg_replace('/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/u', '<em>$1</em>', $content);
+
+            // 3. Header and Divider Cleanup
+            $content = preg_replace('/---\s*###\s*(<strong>|<b>)?(.*?)(<\/strong>|<\/b>)?/i', '<h3>$2</h3>', $content);
+            $content = preg_replace('/^\s*---\s*$/m', '<hr>', $content);
+
+            return $content;
         } catch (\Exception $e) {
-            Log::error("Unicode decoding failed for blog: " . $e->getMessage());
+            Log::error("Cleanup failed for blog: " . $e->getMessage());
             return $content;
         }
     }

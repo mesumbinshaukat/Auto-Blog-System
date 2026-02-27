@@ -1180,6 +1180,16 @@ Content:
             }
         }
 
+        // 0.5. Markdown-style leak cleanup (Common when AI gets confused)
+        // Convert **bold** to <strong>bold</strong>
+        $content = preg_replace('/\*\*(.*?)\*\*/u', '<strong>$1</strong>', $content);
+        // Convert *italic* to <em>italic</em> (ensuring we don't match double asterisks)
+        $content = preg_replace('/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/u', '<em>$1</em>', $content);
+        // Clean up "--- ###" or similar header leaks and convert to H3
+        $content = preg_replace('/---\s*###\s*(<strong>|<b>)?(.*?)(<\/strong>|<\/b>)?/i', '<h3>$2</h3>', $content);
+        // Replace standalone "---" with <hr>
+        $content = preg_replace('/^\s*---\s*$/m', '<hr>', $content);
+
         // 1. Robotic Phrase & Noise Removal (Clean starts of paragraphs)
         $roboticPrompts = [
             'In conclusion', 'To sum up', 'Ultimately', 'In summary', 'To conclude', 
