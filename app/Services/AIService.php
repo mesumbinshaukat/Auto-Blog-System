@@ -1167,26 +1167,29 @@ Content:
     {
         if (empty($content)) return $content;
 
-        // 0. Resolve Unicode Escapes (e.g. \u003ch1\u003e -> <h1>)
-        // Some AI models leak these when returning raw text
+        // 0. Resolve Unicode Escapes (e.g. \\u003ch1\\u003e -> <h1>)
         if (str_contains($content, '\u00')) {
-            // Use json_decode to cleanly resolve escaped characters
-            // Handle cases where content is wrapped in quotes or not
-            $testStr = $content;
-            if (!str_starts_with($testStr, '"')) $testStr = '"' . str_replace('"', '\"', $testStr) . '"';
-            $decoded = json_decode($testStr);
-            if ($decoded !== null) {
-                $content = $decoded;
-            }
+            $content = preg_replace_callback('/\\\\u([0-9a-fA-F]{4})/', function ($match) {
+                return mb_convert_encoding(pack('H*', $match[1]), 'UTF-8', 'UCS-2BE');
+            }, $content);
         }
 
-        // 0.5. Markdown-style leak cleanup (Common when AI gets confused)
+        // 0.5. Markdown-style leak cleanup
         // Convert **bold** to <strong>bold</strong>
         $content = preg_replace('/\*\*(.*?)\*\*/u', '<strong>$1</strong>', $content);
-        // Convert *italic* to <em>italic</em> (ensuring we don't match double asterisks)
+        // Convert *italic* to <em>italic</em>
         $content = preg_replace('/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/u', '<em>$1</em>', $content);
-        // Clean up "--- ###" or similar header leaks and convert to H3
+        
+        // Clean up malformed header artifacts often seen in Starmer/recent blogs
+        // E.g. <h3 id=""></h3>Topic</strong> -> <h3>Topic</h3>
+        $content = preg_replace('/<h3[^>]*>\s*<\/h3>\s*(?:<strong>|<b>)?(.*?)(?:<\/strong>|<\/b>)?/is', '<h3>$1</h3>', $content);
+        
+        // Clean up "--- ###" or similar header leaks
         $content = preg_replace('/---\s*###\s*(<strong>|<b>)?(.*?)(<\/strong>|<\/b>)?/i', '<h3>$2</h3>', $content);
+        
+        // Remove trailing Markdown separators at ends of paragraphs/lines
+        $content = preg_replace('/\s*---(?=\s*(?:<\/p>|<br|$))/i', '', $content);
+        
         // Replace standalone "---" with <hr>
         $content = preg_replace('/^\s*---\s*$/m', '<hr>', $content);
 
