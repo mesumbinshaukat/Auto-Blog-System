@@ -1178,6 +1178,10 @@ Content:
         }
 
         // 0.5. Markdown-style leak cleanup
+        // Strip Markdown code block wrappers if AI leaks them (e.g. ```html ... ```)
+        $content = preg_replace('/^```(?:html|markdown)?\s+/i', '', $content);
+        $content = preg_replace('/\s*```$/', '', $content);
+
         // Convert **bold** to <strong>bold</strong>
         $content = preg_replace('/\*\*(.*?)\*\*/u', '<strong>$1</strong>', $content);
         // Convert *italic* to <em>italic</em>
