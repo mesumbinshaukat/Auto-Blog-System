@@ -75,4 +75,4 @@ sequenceDiagram
 ```
 
 ---
-*For general project documentation, see the [README.md](file:///e:/Projects/blogs.worldoftech.company/README.md).*
+*For general project documentation, see the [README.md](README.md).*

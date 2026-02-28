@@ -141,7 +141,7 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
   - **Enhanced Diagnostics**: `php artisan blog:vertex-test` for OAuth2 and quota verification.
 
 - **🆕 Remote Management & Aggressive Cleanup** (v7.0):
-  - **MCP Server Integration**: Secure, lightweight bridge for remote management from the IDE (`public/mcp.php`). See [MCP.md](file:///e:/Projects/blogs.worldoftech.company/MCP.md).
+  - **MCP Server Integration**: Secure, lightweight bridge for remote management from the IDE (`public/mcp.php`). See [MCP.md](MCP.md).
   - **Aggressive Content Normalization**:
     - **Unicode Decoding**: Fully resolves character escapes like `\u003c` in content and meta tags.
     - **Markdown-to-HTML**: Automatically converts `**bold**` and `*italic*` artifacts to standard HTML.
