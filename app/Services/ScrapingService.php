@@ -293,50 +293,56 @@ class ScrapingService
     {
         $category = strtolower($category);
         
-        // Try Scraping Hub API first
-        if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
-            try {
-                Log::info("Attempting to fetch topics from Scraping Hub for category: $category");
-                $query = "$category related articles 2025";
-                $results = $this->scrapingHub->news($query, 20);
-                
-                if ($results && count($results) >= 5) {
-                    $topics = [];
-                    foreach ($results as $result) {
-                        if (isset($result['title']) && !empty($result['title'])) {
-                            $topics[] = trim($result['title']);
+        // SPECIAL CASE: For tutorials, we skip news APIs (ScrapingHub News/Mediastack) 
+        // because they often return general news instead of technical tutorials.
+        // We want evergreen or latest specialized guides from RSS first.
+        if ($category !== 'tutorial') {
+            // Try Scraping Hub API first
+            if ($this->scrapingHub && $this->scrapingHub->isAvailable()) {
+                try {
+                    Log::info("Attempting to fetch topics from Scraping Hub for category: $category");
+                    $query = "$category related articles 2025";
+                    $results = $this->scrapingHub->news($query, 20);
+                    
+                    if ($results && count($results) >= 5) {
+                        $topics = [];
+                        foreach ($results as $result) {
+                            if (isset($result['title']) && !empty($result['title'])) {
+                                $topics[] = trim($result['title']);
+                            }
+                        }
+                        
+                        $topics = array_unique($topics);
+                        
+                        if (count($topics) >= 5) {
+                            Log::info("Using Scraping Hub topics for category: $category (" . count($topics) . " topics)");
+                            return array_slice($topics, 0, 10);
                         }
                     }
                     
-                    $topics = array_unique($topics);
-                    
-                    if (count($topics) >= 5) {
-                        Log::info("Using Scraping Hub topics for category: $category (" . count($topics) . " topics)");
-                        return array_slice($topics, 0, 10);
-                    }
+                    Log::info("Scraping Hub topics failed or empty, falling back");
+                } catch (\Exception $e) {
+                    Log::warning("ScrapingHub topics fail: {$e->getMessage()}, falling back");
                 }
-                
-                Log::info("Scraping Hub topics failed or empty, falling back");
-            } catch (\Exception $e) {
-                Log::warning("ScrapingHub topics fail: {$e->getMessage()}, falling back");
             }
+            
+            // Try Mediastack second
+            $mediastackTopics = $this->fetchTrendingTopicsWithMediastack($category);
+            if ($mediastackTopics && count($mediastackTopics) >= 5) {
+                Log::info("Using Mediastack topics for category: $category");
+                return $mediastackTopics;
+            }
+        } else {
+            Log::info("Tutorial category detected: skipping News APIs to prioritize technical RSS feeds.");
         }
         
-        // Try Mediastack second
-        $mediastackTopics = $this->fetchTrendingTopicsWithMediastack($category);
-        if ($mediastackTopics && count($mediastackTopics) >= 5) {
-            Log::info("Using Mediastack topics for category: $category");
-            return $mediastackTopics;
-        }
-        
-        // Fallback to RSS
-        Log::info("Falling back to RSS for category: $category");
+        // Fallback to RSS (Tutorials will start here now)
+        Log::info("Fetching topics from RSS for category: $category");
         $sources = $this->rssSources[$category] ?? [];
         
         // Add random variation to avoid stale topics
         shuffle($sources);
-        $sources = array_slice($sources, 0, 3); // Check up to 3 sources per run
-
+        $sources = array_slice($sources, 0, 5); // Increased for tutorials to get more variety 
         $topics = [];
 
         foreach ($sources as $url) {

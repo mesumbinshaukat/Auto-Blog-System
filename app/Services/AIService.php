@@ -678,7 +678,10 @@ OUTPUT FORMAT: Return ONLY the HTML content, no markdown code blocks.";
 
     protected function buildUserPrompt(string $topic, string $category, string $researchData, string $keywords = ''): string
     {
+        $currentDate = date('F Y');
         $prompt = "Write a comprehensive blog post about \"$topic\" in the $category category.\n";
+        $prompt .= "CURRENT DATE: $currentDate. Ensure all technical information is current for 2025/2026.\n\n";
+
         if ($keywords) {
             $prompt .= "Target Keywords: $keywords\n\n";
         }
@@ -692,6 +695,16 @@ OUTPUT FORMAT: Return ONLY the HTML content, no markdown code blocks.";
             $prompt .= "4. Do NOT include any \"//www.example.com/...\" artifacts.\n\n";
         }
 
+        // SPECIAL INSTRUCTIONS FOR TUTORIALS
+        if (strtolower($category) === 'tutorial') {
+            $prompt .= "TUTORIAL SPECIALIST INSTRUCTIONS:\n";
+            $prompt .= "- Focus on TECHNICAL ACCURACY and STEP-BY-STEP implementation.\n";
+            $prompt .= "- Include specific CLI commands, code snippets, or configuration examples.\n";
+            $prompt .= "- Explain 'Why' as well as 'How' to provide educational value.\n";
+            $prompt .= "- Ensure the tutorial is compatible with the latest software versions as of $currentDate.\n";
+            $prompt .= "- Structure with clear: Prerequisites -> Steps -> Verification -> Common Pitfalls -> FAQ.\n\n";
+        }
+
         $prompt .= "INSTRUCTIONS:
 - Create an engaging, informative article.
 - Use the research context but maintain originality.
@@ -699,6 +712,7 @@ OUTPUT FORMAT: Return ONLY the HTML content, no markdown code blocks.";
 - If comparison topic, use <table class='comparison-table'>.
 - Natural keyword integration.
 - Conversational tone.
+- Current knowledge: 2025-2026 state-of-the-art.
 
 Begin writing the blog post now:";
 

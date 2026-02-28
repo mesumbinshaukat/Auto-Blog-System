@@ -281,10 +281,12 @@ class BlogGeneratorService
                 // Continue with original content if SEO fails, but log it
             }
 
-            // 8. Extract Title
+            // 8. Extract Title & Strip H1 for SEO (Prevent Duplication in Layout)
             $title = $topic;
             if (preg_match('/<h1[^>]*>(.*?)<\/h1>/', $finalContent, $matches)) {
                 $title = strip_tags($matches[1]);
+                // Remove the H1 from content as the layout already has one
+                $finalContent = preg_replace('/<h1[^>]*>.*?<\/h1>/si', '', $finalContent);
             }
             
             // Sanitize title to remove entities
