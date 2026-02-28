@@ -52,7 +52,7 @@ A fully automated, AI-powered blogging platform built with Laravel 12.x, Livewir
 
 - **Robust Backend**:
   - Admin Dashboard for manual management & generation.
-  - **Self-Healing Diagnostics**: Scripts to test Cron Jobs and Queue Workers on production.
+  - **Self-Healing Diagnostics**: Scripts to test Cron Jobs and Queue Workers on production (see `tests/scripts/`).
   - Daily SQLite backups with retention policy (last 7 days).
   - Soft deletes for safety.
   - Comprehensive error handling and email notifications.
@@ -380,7 +380,7 @@ php artisan test
   - System tries Gemini first (2 retries), then falls back to HuggingFace.
   - Check `storage/logs/laravel.log` for specific error messages.
   - Verify both `GEMINI_API_KEY` and `HUGGINGFACE_API_KEY` are set in `.env`.
-- **Queue Not Processing**: Production environments may need diagnostic scripts. Check `cron_test_queue.php` in the root (if uploaded) to debug cron execution.
+- **Queue Not Processing**: Production environments may need diagnostic scripts. Check `tests/scripts/cron_test_queue.php` to debug cron execution.
 - **SSL Certificate Errors**: For local development `verify` is set to `false` in Guzzle clients to avoid certificate issues. Ensure this is enabled for production.
 - **Rate Limits**: The system implements exponential backoff (retries) for API calls.
 
