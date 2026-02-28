@@ -111,8 +111,9 @@ class BlogUnicodeCleanup extends Command
             }
 
             // 1.5. Strip Markdown code block wrappers (e.g. ```html ... ```)
-            $content = preg_replace('/^```(?:html|markdown)?\s+/i', '', $content);
-            $content = preg_replace('/\s*```$/', '', $content);
+            // Removed anchors to catch markers leaked inside tags
+            $content = preg_replace('/```(?:html|markdown)?\s*/im', '', $content);
+            $content = preg_replace('/\s*```/im', '', $content);
 
             // 2. Markdown Bold/Italic Cleanup
             $content = preg_replace('/\*\*(.*?)\*\*/u', '<strong>$1</strong>', $content);
